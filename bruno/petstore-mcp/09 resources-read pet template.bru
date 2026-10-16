@@ -1,0 +1,36 @@
+meta {
+  name: 09 resources/read pets/2 (template)
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  { "jsonrpc": "2.0", "id": 9, "method": "resources/read", "params": { "uri": "petstore://pets/2" } }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("returns Rex", function() {
+    expect(res.getBody().result.contents[0].text).to.contain("Rex");
+  });
+}
+
+docs {
+  You fill in the template yourself: petstore://pets/{petId} with petId 2.
+}

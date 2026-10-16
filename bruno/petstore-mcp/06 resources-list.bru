@@ -1,0 +1,37 @@
+meta {
+  name: 06 resources/list
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  { "jsonrpc": "2.0", "id": 6, "method": "resources/list" }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("lists the three concrete resources", function() {
+    expect(res.getBody().result.resources.map(r => r.uri)).to.have.members(
+      ["petstore://docs/guide", "petstore://inventory", "petstore://categories"]);
+  });
+}
+
+docs {
+  Concrete resources: the ones Claude Desktop shows under + → petstore.
+}

@@ -1,0 +1,38 @@
+meta {
+  name: 10 resources/read pets/2/card (binary)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  { "jsonrpc": "2.0", "id": 10, "method": "resources/read", "params": { "uri": "petstore://pets/2/card" } }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("returns a PNG blob", function() {
+    const c = res.getBody().result.contents[0];
+    expect(c.mimeType).to.equal("image/png");
+    expect(c.blob).to.be.a("string");
+  });
+}
+
+docs {
+  Binary content: "blob" holds the PNG as base64 instead of "text".
+}

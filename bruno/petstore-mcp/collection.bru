@@ -1,0 +1,30 @@
+docs {
+  # Petstore MCP, by hand
+
+  Raw MCP over Streamable HTTP against the gateway on :8081. Every MCP call is a JSON-RPC
+  POST to the same URL; the "method" in the body picks the operation.
+
+  Run 01 and 02 first: 01 opens a session and saves its Mcp-Session-Id, 02 completes the
+  handshake. All later requests send that session ID. Restarting the gateway ends the
+  session (requests get HTTP 400), so run 01 and 02 again.
+
+  Most responses arrive as server-sent events ("event:message" / "data:{...}"). A
+  collection-level script unwraps the data line so Bruno shows plain JSON.
+}
+
+vars:pre-request {
+  mcpUrl: http://localhost:8081/mcp
+  apiUrl: http://localhost:8080/v2
+  protocolVersion: 2025-11-25
+}
+
+script:post-response {
+  // Unwrap SSE ("event:message\ndata:{...}") into plain JSON for display and tests.
+  const body = res.getBody();
+  if (typeof body === "string") {
+    const data = body.split(/\r?\n/).find(line => line.startsWith("data:"));
+    if (data) {
+      res.setBody(JSON.parse(data.slice(5)));
+    }
+  }
+}
