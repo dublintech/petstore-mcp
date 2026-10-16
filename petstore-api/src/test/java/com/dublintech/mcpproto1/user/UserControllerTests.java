@@ -51,7 +51,8 @@ class UserControllerTests {
     @Test
     void loginWithWrongPasswordIs400() throws Exception {
         mvc.perform(get("/v2/user/login").param("username", "user1").param("password", "wrong"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("INVALID_CREDENTIALS"));
     }
 
     @Test

@@ -1,6 +1,9 @@
 package com.dublintech.mcpproto1.pet;
 
 import com.dublintech.mcpproto1.common.ApiException;
+import com.dublintech.mcpproto1.common.ErrorCode;
+import com.dublintech.mcpproto1.common.FieldError;
+import com.dublintech.mcpproto1.common.FieldError.Rule;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;
@@ -29,7 +32,7 @@ public class PetService {
 
     public Pet updatePet(Pet pet) {
         if (pet == null || pet.id() == null || pet.id() <= 0) {
-            throw ApiException.badRequest("Invalid ID supplied");
+            throw ApiException.badRequest(ErrorCode.INVALID_ID, "Invalid ID supplied", FieldError.min("id", 1));
         }
         requireExisting(pet.id());
         validate(pet);
@@ -52,7 +55,7 @@ public class PetService {
     public List<Pet> findByTags(Collection<String> tagNames) {
         Set<String> wanted = tagNames.stream().map(String::trim).collect(Collectors.toSet());
         if (wanted.isEmpty() || wanted.contains("")) {
-            throw ApiException.badRequest("Invalid tag value");
+            throw ApiException.badRequest(ErrorCode.INVALID_TAG, "Invalid tag value", FieldError.of("tags", Rule.REQUIRED));
         }
         return sorted(petRepository.findAll().stream()
                 .filter(pet -> pet.tags() != null && pet.tags().stream()
@@ -70,7 +73,7 @@ public class PetService {
             try {
                 pet = pet.withStatus(PetStatus.fromValue(status));
             } catch (ApiException ex) {
-                throw ApiException.invalidInput(ex.getMessage());
+                throw ApiException.invalidInput(ErrorCode.INVALID_STATUS, ex.getMessage(), ex.getFieldError());
             }
         }
         return petRepository.save(pet);
@@ -78,7 +81,7 @@ public class PetService {
 
     public void deletePet(long petId) {
         if (!petRepository.deleteById(petId)) {
-            throw ApiException.notFound("Pet not found");
+            throw ApiException.notFound(ErrorCode.PET_NOT_FOUND, "Pet not found");
         }
     }
 
@@ -105,15 +108,15 @@ public class PetService {
 
     private Pet requireExisting(long petId) {
         return petRepository.findById(petId)
-                .orElseThrow(() -> ApiException.notFound("Pet not found"));
+                .orElseThrow(() -> ApiException.notFound(ErrorCode.PET_NOT_FOUND, "Pet not found"));
     }
 
     private static void validate(Pet pet) {
         if (pet == null || pet.name() == null || pet.name().isBlank()) {
-            throw ApiException.invalidInput("Invalid input: 'name' is required");
+            throw ApiException.invalidInput(ErrorCode.INVALID_PET, "Invalid input: 'name' is required", FieldError.of("name", Rule.REQUIRED));
         }
         if (pet.photoUrls() == null) {
-            throw ApiException.invalidInput("Invalid input: 'photoUrls' is required");
+            throw ApiException.invalidInput(ErrorCode.INVALID_PET, "Invalid input: 'photoUrls' is required", FieldError.of("photoUrls", Rule.REQUIRED));
         }
     }
 

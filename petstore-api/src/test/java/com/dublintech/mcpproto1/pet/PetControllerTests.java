@@ -41,8 +41,14 @@ class PetControllerTests {
     void unknownPetIs404AndNonNumericIdIs400() throws Exception {
         mvc.perform(get("/v2/pet/9999"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value(404));
-        mvc.perform(get("/v2/pet/abc")).andExpect(status().isBadRequest());
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.type").value("PET_NOT_FOUND"))
+                .andExpect(jsonPath("$.field").doesNotExist());
+        mvc.perform(get("/v2/pet/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.field").value("petId"))
+                .andExpect(jsonPath("$.rule").value("TYPE"));
     }
 
     @Test
@@ -59,7 +65,12 @@ class PetControllerTests {
     @Test
     void invalidStatusIs400() throws Exception {
         mvc.perform(get("/v2/pet/findByStatus").param("status", "lost"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("INVALID_STATUS"))
+                .andExpect(jsonPath("$.field").value("status"))
+                .andExpect(jsonPath("$.rule").value("ONE_OF"))
+                // The human-readable message echoes the input; that is why clients must not forward it.
+                .andExpect(jsonPath("$.message").value("Invalid status value: lost"));
     }
 
     @Test
@@ -99,7 +110,10 @@ class PetControllerTests {
     @Test
     void addPetWithoutRequiredFieldsIs405() throws Exception {
         mvc.perform(post("/v2/pet").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"NoPhotos\"}"))
-                .andExpect(status().isMethodNotAllowed());
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.type").value("INVALID_PET"))
+                .andExpect(jsonPath("$.field").value("photoUrls"))
+                .andExpect(jsonPath("$.rule").value("REQUIRED"));
     }
 
     @Test
@@ -118,6 +132,9 @@ class PetControllerTests {
         mvc.perform(multipart("/v2/pet/2/uploadImage").file(file).param("additionalMetadata", "profile"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.message", containsString("rex.png, 3 bytes")));
+                .andExpect(jsonPath("$.message", containsString("rex.png, 3 bytes")))
+                // Success responses keep the spec's three-field shape.
+                .andExpect(jsonPath("$.field").doesNotExist())
+                .andExpect(jsonPath("$.rule").doesNotExist());
     }
 }

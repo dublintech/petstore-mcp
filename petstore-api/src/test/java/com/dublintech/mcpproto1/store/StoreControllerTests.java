@@ -44,8 +44,14 @@ class StoreControllerTests {
 
     @Test
     void invalidOrderIdIs400AndUnknownIs404() throws Exception {
-        mvc.perform(get("/v2/store/order/0")).andExpect(status().isBadRequest());
-        mvc.perform(get("/v2/store/order/999")).andExpect(status().isNotFound());
+        mvc.perform(get("/v2/store/order/0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("INVALID_ID"))
+                .andExpect(jsonPath("$.rule").value("MIN"))
+                .andExpect(jsonPath("$.limit").value(1));
+        mvc.perform(get("/v2/store/order/999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("ORDER_NOT_FOUND"));
         mvc.perform(delete("/v2/store/order/-1")).andExpect(status().isBadRequest());
     }
 
@@ -68,6 +74,9 @@ class StoreControllerTests {
     void orderForUnknownPetIs400() throws Exception {
         mvc.perform(post("/v2/store/order").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"petId\":9999,\"quantity\":1}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("INVALID_ORDER"))
+                .andExpect(jsonPath("$.field").value("petId"))
+                .andExpect(jsonPath("$.rule").value("MUST_EXIST"));
     }
 }

@@ -1,6 +1,7 @@
 package com.dublintech.mcpproto1.pet;
 
 import com.dublintech.mcpproto1.common.ApiException;
+import com.dublintech.mcpproto1.common.ErrorCode;
 import com.dublintech.mcpproto1.common.ApiResponse;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -76,7 +77,7 @@ public class PetController {
                                   @RequestParam(required = false) String additionalMetadata,
                                   @RequestParam(required = false) MultipartFile file) {
         if (!petService.exists(petId)) {
-            throw ApiException.notFound("Pet not found");
+            throw ApiException.notFound(ErrorCode.PET_NOT_FOUND, "Pet not found");
         }
         StringBuilder message = new StringBuilder("additionalMetadata: ").append(additionalMetadata);
         if (file != null && !file.isEmpty()) {
