@@ -1,0 +1,38 @@
+meta {
+  name: 05 tools/call buyPet (changes data)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "tools/call",
+    "params": { "name": "buyPet", "arguments": { "petId": 1 } }
+  }
+}
+
+tests {
+  test("returns a tool result", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().result.content[0].text).to.be.a("string");
+  });
+}
+
+docs {
+  A write facade: checks the pet, places an order, marks the pet pending. Run it twice: the second call is refused with isError true, because the pet is no longer available. Restart the API to reset the data.
+}

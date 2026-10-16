@@ -1,0 +1,37 @@
+meta {
+  name: 03 tools/list
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  { "jsonrpc": "2.0", "id": 3, "method": "tools/list" }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("lists the facade tools", function() {
+    const names = res.getBody().result.tools.map(t => t.name);
+    expect(names).to.include.members(["searchPets", "buyPet"]);
+  });
+}
+
+docs {
+  What every host calls on connect: each tool with its description, input schema and hints.
+}

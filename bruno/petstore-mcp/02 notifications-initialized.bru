@@ -1,0 +1,32 @@
+meta {
+  name: 02 notifications/initialized
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  { "jsonrpc": "2.0", "method": "notifications/initialized" }
+}
+
+tests {
+  test("is accepted with no body", function() {
+    expect(res.getStatus()).to.equal(202);
+  });
+}
+
+docs {
+  A notification (no "id"), so the server sends no JSON-RPC response, just HTTP 202. Completes the handshake.
+}

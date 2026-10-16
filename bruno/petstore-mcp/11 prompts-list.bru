@@ -1,0 +1,36 @@
+meta {
+  name: 11 prompts/list
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  { "jsonrpc": "2.0", "id": 11, "method": "prompts/list" }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("lists both prompts", function() {
+    expect(res.getBody().result.prompts.map(p => p.name)).to.have.members(["stockReport", "findPetFor"]);
+  });
+}
+
+docs {
+  Prompts with their arguments; hosts show these as the speech-bubble entries.
+}

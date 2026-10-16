@@ -1,0 +1,27 @@
+meta {
+  name: 13 end session (DELETE)
+  type: http
+  seq: 13
+}
+
+delete {
+  url: {{mcpUrl}}
+  body: none
+  auth: none
+}
+
+headers {
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+tests {
+  test("closes the session", function() {
+    expect(res.getStatus()).to.be.oneOf([200, 202, 204]);
+  });
+}
+
+docs {
+  A client may end its session explicitly. After this, requests with the old session ID fail;
+  run 01 and 02 again to start a new one.
+}

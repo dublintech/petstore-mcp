@@ -1,0 +1,41 @@
+meta {
+  name: 12 prompts/get findPetFor
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "prompts/get",
+    "params": { "name": "findPetFor", "arguments": { "petType": "cat", "preferences": "tagged tag2" } }
+  }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("returns ready-made messages", function() {
+    expect(res.getBody().result.messages.length).to.equal(2);
+  });
+}
+
+docs {
+  The messages a host would drop into the chat: the embedded guide, then the task text.
+}

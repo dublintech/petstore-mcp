@@ -1,0 +1,3 @@
+description = 'Petstore REST API'
+
+// No extra dependencies: the API knows nothing about MCP.

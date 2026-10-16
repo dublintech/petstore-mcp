@@ -1,0 +1,42 @@
+meta {
+  name: 04 tools/call searchPets
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": { "name": "searchPets", "arguments": { "category": "dogs", "tag": "tag1" } }
+  }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("returns pet summaries", function() {
+    expect(res.getBody().result.isError).to.equal(false);
+    expect(res.getBody().result.content[0].text).to.contain("count");
+  });
+}
+
+docs {
+  A read facade: the gateway calls findByStatus and findByTags on the API and filters by category.
+}

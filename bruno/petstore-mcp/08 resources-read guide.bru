@@ -1,0 +1,36 @@
+meta {
+  name: 08 resources/read guide
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  Mcp-Session-Id: {{mcpSession}}
+  MCP-Protocol-Version: {{protocolVersion}}
+}
+
+body:json {
+  { "jsonrpc": "2.0", "id": 8, "method": "resources/read", "params": { "uri": "petstore://docs/guide" } }
+}
+
+tests {
+  test("succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().error).to.be.undefined;
+  });
+  test("returns markdown", function() {
+    expect(res.getBody().result.contents[0].mimeType).to.equal("text/markdown");
+  });
+}
+
+docs {
+  A fixed document, read from the gateway jar.
+}

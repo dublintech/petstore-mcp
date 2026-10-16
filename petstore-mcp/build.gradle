@@ -1,0 +1,16 @@
+description = 'Petstore MCP gateway'
+
+ext {
+    set('springAiVersion', '2.0.1')
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
+    }
+}
+
+// Deliberately no dependency on :petstore-api; the gateway only knows the API's HTTP contract.
+dependencies {
+    implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
+}

@@ -1,0 +1,49 @@
+meta {
+  name: 01 initialize
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{mcpUrl}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "{{protocolVersion}}",
+      "capabilities": {},
+      "clientInfo": { "name": "bruno", "version": "1" }
+    }
+  }
+}
+
+script:post-response {
+  // The server issues the session ID in a response header; every later request must send it back.
+  bru.setVar("mcpSession", res.getHeader("mcp-session-id"));
+  // Use whichever protocol version the server agreed to.
+  bru.setVar("protocolVersion", res.getBody().result.protocolVersion);
+}
+
+tests {
+  test("opens a session", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getHeader("mcp-session-id")).to.be.a("string");
+    expect(res.getBody().result.serverInfo.name).to.equal("petstore");
+  });
+}
+
+docs {
+  Opens an MCP session. The server answers with its capabilities, the protocol version it
+  agreed to, and an Mcp-Session-Id response header that the script saves for later requests.
+}

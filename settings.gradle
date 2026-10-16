@@ -1,1 +1,4 @@
 rootProject.name = 'mcpproto1'
+
+// REST API (port 8080) and the MCP gateway that calls it over HTTP (port 8081)
+include 'petstore-api', 'petstore-mcp'
