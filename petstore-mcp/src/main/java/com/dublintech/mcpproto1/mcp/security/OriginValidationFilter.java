@@ -21,10 +21,38 @@ import java.util.stream.Collectors;
  * spec requires ("Servers MUST validate the Origin header on all incoming connections to prevent DNS rebinding
  * attacks").
  *
- * <p>The attack: a web page the user visits re-points its own domain's DNS at 127.0.0.1, then uses the browser to
- * call this local server. The browser still sends that page's {@code Origin}, so checking it stops the attack.
- * Requests without an {@code Origin} come from non-browser clients (mcp-remote, Claude Code, curl, Bruno) and are
- * allowed; authentication, not this filter, is what protects against those.
+ * <h2>What this protects: a local MCP server from a browser on the same machine</h2>
+ * The threat is specific to servers that only the user's own machine (or private network) can reach and that
+ * therefore rely on "nobody else can get here" instead of a login, as this gateway does on 127.0.0.1. The user's
+ * browser is the weak point: it runs code from any website, and it is on the same machine.
+ * <ol>
+ *   <li>The user visits evil.example; its page loads in their local browser.</li>
+ *   <li>evil.example's DNS is switched to answer 127.0.0.1.</li>
+ *   <li>The page calls {@code http://evil.example:8081/mcp}. The browser sees a same-site request and allows it,
+ *       but it now lands on this server, inheriting the trust that "local" was standing in for.</li>
+ * </ol>
+ * The browser still reports the page's real origin in the {@code Origin} header, so refusing untrusted origins
+ * stops the attack. Requests without an {@code Origin} come from non-browser clients (mcp-remote, Claude Code, curl,
+ * Bruno) and are allowed: they are not the rebinding threat, and authentication, not this filter, is what must
+ * protect against them.
+ *
+ * <h2>Production (remote) MCP servers are different</h2>
+ * A hosted server such as {@code https://mcp.example.com} has no "local browser" problem: it is on the internet and
+ * already expects strangers. What makes rebinding dangerous is ambient trust, i.e. access granted just for being
+ * local, or credentials the browser attaches automatically, such as cookies. A production server should have
+ * neither: every request must carry an OAuth bearer token in the {@code Authorization} header, which a hostile page
+ * cannot obtain or make the browser attach. So in production:
+ * <ul>
+ *   <li>Authentication on every request is the real control (token signature, issuer, audience, expiry, scopes).</li>
+ *   <li>The Origin check is still worth keeping, since the spec says "all incoming connections", but as
+ *       defence in depth: allow no-Origin callers (they must still authenticate), and treat a browser Origin as
+ *       allowed only if the authenticated client registered that origin. That is per-client data looked up at
+ *       request time, not a growing static list like this one.</li>
+ *   <li>The same per-client data drives CORS, and the check usually lives at the edge (API gateway or WAF) rather
+ *       than in each application.</li>
+ *   <li>Never authenticate MCP calls with cookies. That brings back ambient credentials and, with them,
+ *       cross-site request forgery, which only strict Origin checking would then stop.</li>
+ * </ul>
  */
 public class OriginValidationFilter extends OncePerRequestFilter {
 
