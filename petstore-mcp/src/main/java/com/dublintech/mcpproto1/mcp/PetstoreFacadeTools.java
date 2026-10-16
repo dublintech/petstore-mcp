@@ -19,17 +19,22 @@ import java.util.stream.Collectors;
 /**
  * Task-level tools that orchestrate several Petstore API calls each, so the model makes one decision
  * instead of chaining low-level calls and remembering the business rules itself.
+ *
+ * <p>Error messages here are written by the gateway and contain only IDs, known statuses and numbers. Free-text
+ * values such as pet names come from data anyone can write, so they appear only in structured result fields,
+ * never inside a message.
  */
 @Component
 public class PetstoreFacadeTools {
 
     private static final String AVAILABLE = "available";
     private static final String PENDING = "pending";
+    private static final Set<String> KNOWN_STATUSES = Set.of(AVAILABLE, PENDING, "sold");
 
-    private final PetstoreApiClient api;
+    private final PetstoreApiClient petstoreApiClient;
 
-    public PetstoreFacadeTools(PetstoreApiClient api) {
-        this.api = api;
+    public PetstoreFacadeTools(PetstoreApiClient petstoreApiClient) {
+        this.petstoreApiClient = petstoreApiClient;
     }
 
     public record PetSummary(long id, String name, String category, List<String> tags, String status) {
@@ -52,11 +57,11 @@ public class PetstoreFacadeTools {
             @McpToolParam(description = "Tag name, e.g. tag1", required = false) String tag,
             @McpToolParam(description = "available (default), pending or sold", required = false) String status) {
         String wantedStatus = isBlank(status) ? AVAILABLE : status.trim();
-        List<Pet> pets = api.findPetsByStatus(List.of(wantedStatus));
+        List<Pet> pets = GatewayErrors.call(() -> petstoreApiClient.findPetsByStatus(List.of(wantedStatus)));
 
         if (!isBlank(tag)) {
             // findByTags is deprecated in the spec; using it here keeps that detail out of the model's view.
-            Set<Long> tagged = api.findPetsByTags(List.of(tag.trim())).stream()
+            Set<Long> tagged = GatewayErrors.call(() -> petstoreApiClient.findPetsByTags(List.of(tag.trim()))).stream()
                     .map(Pet::id).collect(Collectors.toSet());
             pets = pets.stream().filter(pet -> tagged.contains(pet.id())).toList();
         }
@@ -69,9 +74,8 @@ public class PetstoreFacadeTools {
 
         List<PetSummary> summaries = pets.stream().map(PetstoreFacadeTools::summarise).toList();
         String note = summaries.isEmpty()
-                ? "No %s pets matched%s%s. Try another status or drop a filter.".formatted(wantedStatus,
-                        isBlank(category) ? "" : " category '" + category.trim() + "'",
-                        isBlank(tag) ? "" : " tag '" + tag.trim() + "'")
+                ? "No pets matched those filters. Try another status or drop a filter; the categories resource "
+                        + "lists valid category names."
                 : null;
         return new PetSearchResult(summaries.size(), summaries, note);
     }
@@ -93,47 +97,48 @@ public class PetstoreFacadeTools {
             @McpToolParam(description = "Quantity, at least 1 (default 1)", required = false) Integer quantity) {
         int wanted = quantity == null ? 1 : quantity;
         if (wanted < 1) {
-            throw new IllegalArgumentException("Quantity must be at least 1.");
+            throw new GatewayErrorException("Quantity must be at least 1.");
         }
 
         Pet pet = findPet(petId);
         if (!AVAILABLE.equals(pet.status())) {
-            throw new IllegalStateException("%s (ID %d) is %s and can't be bought. Use searchPets to find available pets."
-                    .formatted(pet.name(), petId, pet.status()));
+            String status = KNOWN_STATUSES.contains(pet.status()) ? pet.status() : "not available";
+            throw new GatewayErrorException(
+                    "Pet %d is %s and can't be bought. Use searchPets to find available pets.".formatted(petId, status));
         }
 
-        Order order = api.placeOrder(petId, wanted);
+        Order order = GatewayErrors.call(() -> petstoreApiClient.placeOrder(petId, wanted));
         try {
-            api.updatePetStatus(petId, PENDING);
+            petstoreApiClient.updatePetStatus(petId, PENDING);
         } catch (PetstoreApiException reserveFailure) {
-            cancelAfterFailedReservation(order, pet, reserveFailure);
+            cancelAfterFailedReservation(order, petId, reserveFailure);
         }
         return new Purchase(order.id(), petId, pet.name(), wanted, order.status(), PENDING, order.shipDate());
     }
 
     private Pet findPet(long petId) {
         try {
-            return api.getPet(petId);
+            return petstoreApiClient.getPet(petId);
         } catch (PetstoreApiException ex) {
             if (ex.isNotFound()) {
-                throw new IllegalArgumentException(
+                throw new GatewayErrorException(
                         "No pet with ID %d. Use searchPets to find available pets.".formatted(petId));
             }
-            throw ex;
+            throw GatewayErrors.translate(ex);
         }
     }
 
     /** Compensating action: undo the order so the store is left as it was. Always throws. */
-    private void cancelAfterFailedReservation(Order order, Pet pet, PetstoreApiException reserveFailure) {
+    private void cancelAfterFailedReservation(Order order, long petId, PetstoreApiException reserveFailure) {
         try {
-            api.deleteOrder(order.id());
+            petstoreApiClient.deleteOrder(order.id());
         } catch (PetstoreApiException undoFailure) {
-            throw new IllegalStateException(("Order %d was placed but %s could not be reserved (%s), and cancelling "
-                    + "the order also failed (%s). The order needs manual cleanup.")
-                    .formatted(order.id(), pet.name(), reserveFailure.getMessage(), undoFailure.getMessage()));
+            throw new GatewayErrorException(("Order %d was placed but pet %d could not be reserved, and cancelling "
+                    + "the order also failed. The order needs manual cleanup (refs %s, %s).")
+                    .formatted(order.id(), petId, reserveFailure.getReference(), undoFailure.getReference()));
         }
-        throw new IllegalStateException("Could not reserve %s (%s), so order %d was cancelled. Nothing was bought."
-                .formatted(pet.name(), reserveFailure.getMessage(), order.id()));
+        throw new GatewayErrorException("Could not reserve pet %d, so order %d was cancelled. Nothing was bought (ref %s)."
+                .formatted(petId, order.id(), reserveFailure.getReference()));
     }
 
     private static PetSummary summarise(Pet pet) {

@@ -9,6 +9,7 @@ import com.dublintech.mcpproto1.mcp.client.PetstoreModels.Tag;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.spec.McpSchema.BlobResourceContents;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.EmbeddedResource;
@@ -28,6 +29,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -83,13 +88,13 @@ class McpGatewayTests {
     }
 
     @Test
-    void passesApiErrorMessageThroughAsToolError() {
-        when(api.getPet(9999)).thenThrow(new PetstoreApiException(404, "Pet not found"));
+    void translatesApiErrorCodeIntoGatewayMessage() {
+        when(api.getPet(9999)).thenThrow(new PetstoreApiException(404, "PET_NOT_FOUND", null, null, null));
 
         CallToolResult result = call("getPetById", Map.of("petId", 9999));
 
         assertThat(result.isError()).isTrue();
-        assertThat(text(result)).contains("Pet not found");
+        assertThat(text(result)).startsWith("No such pet. Use searchPets to find pets. (ref ");
     }
 
     // --- searchPets ---
@@ -111,7 +116,7 @@ class McpGatewayTests {
 
         String result = text(call("searchPets", Map.of("category", "Cats")));
 
-        assertThat(result).contains("\"count\":0").contains("No available pets matched category 'Cats'");
+        assertThat(result).contains("\"count\":0").contains("No pets matched those filters");
     }
 
     // --- buyPet ---
@@ -136,13 +141,13 @@ class McpGatewayTests {
         CallToolResult result = call("buyPet", Map.of("petId", 3));
 
         assertThat(result.isError()).isTrue();
-        assertThat(text(result)).contains("Whiskers (ID 3) is pending and can't be bought");
+        assertThat(text(result)).contains("Pet 3 is pending and can't be bought").doesNotContain("Whiskers");
         verify(api, never()).placeOrder(anyLong(), anyInt());
     }
 
     @Test
     void buyPetPointsUnknownPetToSearch() {
-        when(api.getPet(42)).thenThrow(new PetstoreApiException(404, "Pet not found"));
+        when(api.getPet(42)).thenThrow(new PetstoreApiException(404, "PET_NOT_FOUND", null, null, null));
 
         CallToolResult result = call("buyPet", Map.of("petId", 42));
 
@@ -154,13 +159,13 @@ class McpGatewayTests {
     void buyPetCancelsOrderWhenReservationFails() {
         when(api.getPet(1)).thenReturn(DOGGIE);
         when(api.placeOrder(1, 1)).thenReturn(new Order(11L, 1L, 1, null, "placed", false));
-        doThrow(new PetstoreApiException(503, "The Petstore API is unavailable"))
+        doThrow(PetstoreApiException.unavailable())
                 .when(api).updatePetStatus(1, "pending");
 
         CallToolResult result = call("buyPet", Map.of("petId", 1));
 
         assertThat(result.isError()).isTrue();
-        assertThat(text(result)).contains("order 11 was cancelled. Nothing was bought.");
+        assertThat(text(result)).contains("Could not reserve pet 1, so order 11 was cancelled. Nothing was bought");
         verify(api).deleteOrder(11);
     }
 
@@ -168,8 +173,8 @@ class McpGatewayTests {
     void buyPetReportsWhenCancellationAlsoFails() {
         when(api.getPet(1)).thenReturn(DOGGIE);
         when(api.placeOrder(1, 1)).thenReturn(new Order(11L, 1L, 1, null, "placed", false));
-        doThrow(new PetstoreApiException(503, "down")).when(api).updatePetStatus(1, "pending");
-        doThrow(new PetstoreApiException(503, "still down")).when(api).deleteOrder(11);
+        doThrow(PetstoreApiException.unavailable()).when(api).updatePetStatus(1, "pending");
+        doThrow(PetstoreApiException.unavailable()).when(api).deleteOrder(11);
 
         CallToolResult result = call("buyPet", Map.of("petId", 1));
 
@@ -180,24 +185,53 @@ class McpGatewayTests {
     // --- resources and prompts ---
 
     @Test
-    void servesResourcesFromTheApi() {
+    void listsFixedResourcesAndTemplates() {
+        assertThat(client.listResources().resources()).extracting(Resource::uri).containsExactlyInAnyOrder(
+                "petstore://docs/guide", "petstore://inventory", "petstore://categories");
+        assertThat(client.listResourceTemplates().resourceTemplates()).extracting(ResourceTemplate::uriTemplate)
+                .containsExactlyInAnyOrder("petstore://pets/{petId}", "petstore://pets/{petId}/card");
+    }
+
+    @Test
+    void servesLiveAndTemplatedResourcesFromTheApi() {
         when(api.getInventory()).thenReturn(Map.of("available", 3, "pending", 2, "sold", 2));
         when(api.getPet(2)).thenReturn(REX);
 
-        assertThat(client.listResources().resources()).extracting(Resource::uri).containsExactlyInAnyOrder(
-                "petstore://docs/openapi", "petstore://docs/guide", "petstore://inventory");
-        assertThat(client.listResourceTemplates().resourceTemplates()).extracting(ResourceTemplate::uriTemplate)
-                .containsExactly("petstore://pets/{petId}");
         assertThat(read("petstore://inventory")).contains("\"available\":3");
         assertThat(read("petstore://pets/2")).contains("\"name\":\"Rex\"");
-        assertThat(read("petstore://docs/openapi")).contains("\"title\": \"Swagger Petstore\"");
+        assertThat(read("petstore://docs/guide")).startsWith("# Petstore guide").contains("buyPet");
+    }
+
+    @Test
+    void derivesCategoriesFromAllPets() {
+        when(api.findPetsByStatus(List.of("available", "pending", "sold")))
+                .thenReturn(List.of(DOGGIE, REX, TWEETY, WHISKERS));
+
+        assertThat(read("petstore://categories")).isEqualTo("""
+                [{"name":"Birds","pets":1,"available":1},\
+                {"name":"Cats","pets":1,"available":0},\
+                {"name":"Dogs","pets":2,"available":2}]""");
+    }
+
+    @Test
+    void servesPetCardAsPngBlob() throws Exception {
+        when(api.getPet(2)).thenReturn(REX);
+
+        BlobResourceContents card = (BlobResourceContents) client.readResource(
+                ReadResourceRequest.builder("petstore://pets/2/card").build()).contents().getFirst();
+
+        assertThat(card.uri()).isEqualTo("petstore://pets/2/card");
+        assertThat(card.mimeType()).isEqualTo("image/png");
+        BufferedImage image = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(card.blob())));
+        assertThat(image.getWidth()).isEqualTo(400);
+        assertThat(image.getHeight()).isEqualTo(200);
     }
 
     @Test
     void unknownPetResourceIsAnError() {
-        when(api.getPet(9999)).thenThrow(new PetstoreApiException(404, "Pet not found"));
+        when(api.getPet(9999)).thenThrow(new PetstoreApiException(404, "PET_NOT_FOUND", null, null, null));
 
-        assertThatThrownBy(() -> read("petstore://pets/9999")).hasMessageContaining("Pet not found");
+        assertThatThrownBy(() -> read("petstore://pets/9999")).hasMessageContaining("No such pet");
     }
 
     @Test

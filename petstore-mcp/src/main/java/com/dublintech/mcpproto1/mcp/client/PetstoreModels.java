@@ -38,8 +38,12 @@ public final class PetstoreModels {
                        Integer userStatus) {
     }
 
+    /**
+     * The API's response envelope. For errors, {@code type} is a machine-readable code and field/rule/limit give
+     * typed detail. {@code message} is free text for humans: the gateway logs it but never forwards it.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ApiResponse(Integer code, String type, String message) {
+    public record ApiResponse(Integer code, String type, String message, String field, String rule, Integer limit) {
     }
 
     /** Request body for placing an order; the API fills in id, status and complete. */

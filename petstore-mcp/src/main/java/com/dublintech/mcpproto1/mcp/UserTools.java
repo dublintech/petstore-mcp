@@ -22,6 +22,6 @@ public class UserTools {
     @McpTool(name = "getUserByName", description = "Look up a user by username. The password is never returned.",
             annotations = @McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public User getUserByName(@McpToolParam(description = "Username, e.g. user1") String username) {
-        return api.getUser(username);
+        return GatewayErrors.call(() -> api.getUser(username));
     }
 }

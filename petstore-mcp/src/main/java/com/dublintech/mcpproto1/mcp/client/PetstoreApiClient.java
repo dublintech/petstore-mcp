@@ -5,26 +5,31 @@ import com.dublintech.mcpproto1.mcp.client.PetstoreModels.NewOrder;
 import com.dublintech.mcpproto1.mcp.client.PetstoreModels.Order;
 import com.dublintech.mcpproto1.mcp.client.PetstoreModels.Pet;
 import com.dublintech.mcpproto1.mcp.client.PetstoreModels.User;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
 /**
- * HTTP client for the Petstore REST API: one method per endpoint the gateway uses. Error responses and
- * connection failures both surface as {@link PetstoreApiException}, carrying the API's own message.
+ * HTTP client for the Petstore REST API: one method per endpoint the gateway uses. Every failure (error status,
+ * unreachable API, unreadable response) surfaces as a {@link PetstoreApiException} holding only checked values.
  */
 public class PetstoreApiClient {
+
+    private static final Logger log = LoggerFactory.getLogger(PetstoreApiClient.class);
 
     private static final ParameterizedTypeReference<List<Pet>> PET_LIST = new ParameterizedTypeReference<>() {};
     private static final ParameterizedTypeReference<Map<String, Integer>> INVENTORY =
@@ -37,8 +42,7 @@ public class PetstoreApiClient {
         this.restClient = builder
                 .baseUrl(baseUrl + "/v2")
                 .defaultStatusHandler(HttpStatusCode::isError, (request, response) -> {
-                    throw new PetstoreApiException(response.getStatusCode().value(),
-                            errorMessage(response.getBody().readAllBytes(), response.getStatusCode()));
+                    throw toException(request, response.getStatusCode(), response.getBody().readAllBytes());
                 })
                 .build();
     }
@@ -90,24 +94,51 @@ public class PetstoreApiClient {
         return call(() -> restClient.get().uri("/user/{username}", username).retrieve().body(User.class));
     }
 
+    /** Turns every client-side failure into a {@link PetstoreApiException}; the details go to the log only. */
     private static <T> T call(Supplier<T> request) {
         try {
             return request.get();
         } catch (ResourceAccessException ex) {
-            throw new PetstoreApiException("The Petstore API is unavailable: " + ex.getMessage(), ex);
+            PetstoreApiException failure = PetstoreApiException.unavailable();
+            log.warn("Petstore API unreachable [ref {}]: {}", failure.getReference(), forLog(ex.getMessage()));
+            throw failure;
+        } catch (RestClientException ex) {
+            PetstoreApiException failure = PetstoreApiException.badResponse();
+            log.warn("Unreadable Petstore API response [ref {}]: {}", failure.getReference(), forLog(ex.getMessage()));
+            throw failure;
         }
     }
 
-    /** Prefers the API's own {@code ApiResponse.message}; falls back to the HTTP status. */
-    private String errorMessage(byte[] body, HttpStatusCode status) throws IOException {
+    /**
+     * Keeps the code and typed detail from an error response. The free-text message is logged for operators and
+     * then discarded: it may echo stored or user-supplied text, so it must never reach the model.
+     */
+    private PetstoreApiException toException(HttpRequest request, HttpStatusCode status, byte[] body) {
+        ApiResponse response = parse(body);
+        PetstoreApiException failure = response == null
+                ? new PetstoreApiException(status.value(), null, null, null, null)
+                : new PetstoreApiException(status.value(), response.type(), response.field(), response.rule(),
+                        response.limit());
+        log.warn("Petstore API error [ref {}]: {} {} -> {} code={} message={}", failure.getReference(),
+                request.getMethod(), request.getURI(), status.value(),
+                response == null ? null : forLog(response.type()), response == null ? null : forLog(response.message()));
+        return failure;
+    }
+
+    private ApiResponse parse(byte[] body) {
         try {
-            ApiResponse response = jsonMapper.readValue(body, ApiResponse.class);
-            if (response != null && response.message() != null) {
-                return response.message();
-            }
-        } catch (JacksonException ignored) {
-            // not an ApiResponse body
+            return jsonMapper.readValue(body, ApiResponse.class);
+        } catch (JacksonException ex) {
+            return null;
         }
-        return "Petstore API returned HTTP " + status.value();
+    }
+
+    /** Stops logged text from forging extra log lines, and caps its length. */
+    private static String forLog(String text) {
+        if (text == null) {
+            return null;
+        }
+        String oneLine = text.replaceAll("[\\r\\n\\t]", " ");
+        return oneLine.length() > 300 ? oneLine.substring(0, 300) + "..." : oneLine;
     }
 }

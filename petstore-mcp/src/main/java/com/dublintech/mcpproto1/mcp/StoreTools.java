@@ -25,12 +25,12 @@ public class StoreTools {
     @McpTool(name = "getInventory", description = "Count the pets in the store per status (available, pending, sold).",
             annotations = @McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public Map<String, Integer> getInventory() {
-        return api.getInventory();
+        return GatewayErrors.call(() -> api.getInventory());
     }
 
     @McpTool(name = "getOrderById", description = "Find a purchase order by its numeric ID.",
             annotations = @McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public Order getOrderById(@McpToolParam(description = "ID of the order, 1 or greater") long orderId) {
-        return api.getOrder(orderId);
+        return GatewayErrors.call(() -> api.getOrder(orderId));
     }
 }
