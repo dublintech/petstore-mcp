@@ -5,7 +5,17 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.EmbeddedResource;
+import io.modelcontextprotocol.spec.McpSchema.GetPromptRequest;
+import io.modelcontextprotocol.spec.McpSchema.GetPromptResult;
+import io.modelcontextprotocol.spec.McpSchema.Prompt;
+import io.modelcontextprotocol.spec.McpSchema.PromptArgument;
+import io.modelcontextprotocol.spec.McpSchema.ReadResourceRequest;
+import io.modelcontextprotocol.spec.McpSchema.ReadResourceResult;
+import io.modelcontextprotocol.spec.McpSchema.Resource;
+import io.modelcontextprotocol.spec.McpSchema.ResourceTemplate;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
+import io.modelcontextprotocol.spec.McpSchema.TextResourceContents;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +28,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext
@@ -91,8 +103,72 @@ class McpServerTests {
         assertThat(user).contains("Alice").doesNotContain("password");
     }
 
+    @Test
+    void listsFixedResourcesAndPetTemplate() {
+        assertThat(client.listResources().resources()).extracting(Resource::uri).containsExactlyInAnyOrder(
+                "petstore://docs/openapi", "petstore://docs/guide", "petstore://inventory");
+        assertThat(client.listResourceTemplates().resourceTemplates()).extracting(ResourceTemplate::uriTemplate)
+                .containsExactly("petstore://pets/{petId}");
+    }
+
+    @Test
+    void readsStaticDocumentResources() {
+        assertThat(read("petstore://docs/openapi")).contains("\"title\": \"Swagger Petstore\"");
+        assertThat(read("petstore://docs/guide")).startsWith("# Petstore guide");
+    }
+
+    @Test
+    void readsLiveInventoryResource() {
+        assertThat(read("petstore://inventory")).contains("\"available\":3").contains("\"sold\":2");
+    }
+
+    @Test
+    void readsPetThroughUriTemplate() {
+        assertThat(read("petstore://pets/2")).contains("\"name\":\"Rex\"");
+    }
+
+    @Test
+    void unknownPetResourceIsAnError() {
+        assertThatThrownBy(() -> read("petstore://pets/9999")).hasMessageContaining("Pet not found");
+    }
+
+    @Test
+    void listsPromptsWithArguments() {
+        List<Prompt> prompts = client.listPrompts().prompts();
+
+        assertThat(prompts).extracting(Prompt::name).containsExactlyInAnyOrder("stockReport", "findPetFor");
+        Prompt findPetFor = prompts.stream().filter(p -> p.name().equals("findPetFor")).findFirst().orElseThrow();
+        assertThat(findPetFor.arguments()).extracting(PromptArgument::name, PromptArgument::required)
+                .containsExactlyInAnyOrder(tuple("petType", true), tuple("preferences", false));
+    }
+
+    @Test
+    void stockReportEmbedsLiveResources() {
+        GetPromptResult result = client.getPrompt(GetPromptRequest.builder("stockReport").build());
+
+        assertThat(result.messages()).hasSize(3);
+        EmbeddedResource inventory = (EmbeddedResource) result.messages().getFirst().content();
+        assertThat(inventory.resource().uri()).isEqualTo("petstore://inventory");
+        assertThat(((TextResourceContents) inventory.resource()).text()).contains("\"available\":3");
+        assertThat(((TextContent) result.messages().getLast().content()).text()).contains("stock report");
+    }
+
+    @Test
+    void findPetForFillsInArguments() {
+        GetPromptResult result = client.getPrompt(GetPromptRequest.builder("findPetFor").arguments(
+                Map.of("petType", "cat", "preferences", "tagged tag2")).build());
+
+        assertThat(((TextContent) result.messages().getLast().content()).text())
+                .contains("looking for a cat").contains("tagged tag2").contains("placeOrder");
+    }
+
+    private String read(String uri) {
+        ReadResourceResult result = client.readResource(ReadResourceRequest.builder(uri).build());
+        return ((TextResourceContents) result.contents().getFirst()).text();
+    }
+
     private CallToolResult call(String tool, Map<String, Object> arguments) {
-        return client.callTool(new CallToolRequest(tool, arguments));
+        return client.callTool(CallToolRequest.builder(tool).arguments(arguments).build());
     }
 
     private static String text(CallToolResult result) {
