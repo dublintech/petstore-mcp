@@ -26,7 +26,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.dublintech.mcpproto1.mcp.security.TestAuthorizationServer;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import javax.imageio.ImageIO;
@@ -65,9 +68,19 @@ class McpGatewayTests {
 
     private McpSyncClient client;
 
+    @DynamicPropertySource
+    static void authorizationServer(DynamicPropertyRegistry registry) {
+        TestAuthorizationServer.register(registry);
+    }
+
     @BeforeEach
     void connect() {
-        client = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port).build()).build();
+        String token = TestAuthorizationServer.validToken();
+        client = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port)
+                        .httpRequestCustomizer((request, method, uri, body, context) ->
+                                request.header("Authorization", "Bearer " + token))
+                        .build())
+                .build();
         client.initialize();
     }
 

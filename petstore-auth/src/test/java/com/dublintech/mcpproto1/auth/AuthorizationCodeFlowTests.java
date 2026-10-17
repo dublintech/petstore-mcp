@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -49,7 +50,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthorizationCodeFlowTests {
 
     private static final String CLIENT_ID = "petstore-mcp-client";
-    private static final String REDIRECT_URI = "http://localhost:3334/oauth/callback";
+    private static final String REDIRECT_URI = "http://127.0.0.1:3334/oauth/callback";
+    private static final String GATEWAY = "http://localhost:8081/mcp";
 
     /**
      *   MockMvc doesn't open a port. No Tomcat and nothing on :9000. It builds a request object in memory and passes it straight through the same filter chain and servlet that real traffic would go
@@ -77,7 +79,9 @@ class AuthorizationCodeFlowTests {
                 .andExpect(jsonPath("$.authorization_endpoint").value("http://localhost:9000/oauth2/authorize"))
                 .andExpect(jsonPath("$.token_endpoint").value("http://localhost:9000/oauth2/token"))
                 .andExpect(jsonPath("$.jwks_uri").value("http://localhost:9000/oauth2/jwks"))
-                .andExpect(jsonPath("$.code_challenge_methods_supported", contains("S256")));
+                .andExpect(jsonPath("$.code_challenge_methods_supported", contains("S256")))
+                // "none": public clients may use the token endpoint without a client secret.
+                .andExpect(jsonPath("$.token_endpoint_auth_methods_supported", hasItem("none")));
     }
 
     @Test
@@ -149,35 +153,81 @@ class AuthorizationCodeFlowTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("invalid_grant"));
 
-        // 6b. The real client, holding the verifier, gets a short-lived bearer token. Public clients get no
-        // refresh token from Spring Authorization Server.
+        // 6b. The real client, holding the verifier, gets a short-lived bearer token and a refresh token.
         MvcResult token = mvc.perform(tokenRequest(code, pkce.verifier()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token_type").value("Bearer"))
                 .andExpect(jsonPath("$.scope").value("petstore.read"))
                 .andExpect(jsonPath("$.expires_in").isNumber())
-                .andExpect(jsonPath("$.refresh_token").doesNotExist())
+                .andExpect(jsonPath("$.refresh_token").isNotEmpty())
                 .andReturn();
-
-        // 6c. A code works only once.
-        mvc.perform(tokenRequest(code, pkce.verifier()))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("invalid_grant"));
 
         // The token verifies against the server's own key, as the gateway and API will check it.
         String accessToken = JsonPath.read(token.getResponse().getContentAsString(), "$.access_token");
         Jwt jwt = jwtDecoder.decode(accessToken);
         assertThat(jwt.getIssuer().toString()).isEqualTo("http://localhost:9000");
         assertThat(jwt.getSubject()).isEqualTo("user1");
+        // Bound to the gateway named in the resource parameter, so no other server will accept it.
+        assertThat(jwt.getAudience()).containsExactly(GATEWAY);
         assertThat(jwt.getClaimAsStringList("scope")).containsExactly("petstore.read");
         assertThat(jwt.getExpiresAt()).isBetween(jwt.getIssuedAt().plusSeconds(299), jwt.getIssuedAt().plusSeconds(300));
+
+        // 7. When the access token expires, the client swaps the refresh token for a new pair, with no browser.
+        String refreshToken = JsonPath.read(token.getResponse().getContentAsString(), "$.refresh_token");
+        MvcResult refreshed = mvc.perform(refreshRequest(refreshToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").isNotEmpty())
+                .andExpect(jsonPath("$.refresh_token").isNotEmpty())
+                .andReturn();
+        Jwt renewed = jwtDecoder.decode(JsonPath.read(refreshed.getResponse().getContentAsString(), "$.access_token"));
+        assertThat(renewed.getSubject()).isEqualTo("user1");
+        assertThat(renewed.getAudience()).containsExactly(GATEWAY);
+        assertThat(renewed.getClaimAsStringList("scope")).containsExactly("petstore.read");
+
+        // 8. Rotation: each refresh token works once, so a stolen one is of limited use.
+        String rotated = JsonPath.read(refreshed.getResponse().getContentAsString(), "$.refresh_token");
+        assertThat(rotated).isNotEqualTo(refreshToken);
+        mvc.perform(refreshRequest(refreshToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_grant"));
+
+        // 9. A code works only once. A second attempt suggests it was stolen, so Spring also revokes everything
+        // issued from it: the current refresh token stops working too.
+        mvc.perform(tokenRequest(code, pkce.verifier()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_grant"));
+        mvc.perform(refreshRequest(rotated))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_grant"));
+    }
+
+    @Test
+    void refreshNeedsTheRegisteredPublicClient() throws Exception {
+        mvc.perform(post("/oauth2/token")
+                        .param("grant_type", "refresh_token")
+                        .param("refresh_token", "anything")
+                        .param("client_id", "no-such-client"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("invalid_client"));
+    }
+
+    @Test
+    void tokenForAnUnknownResourceIsRefused() throws Exception {
+        // The authorization server decides which servers it issues tokens for, not the client.
+        Pkce pkce = Pkce.generate();
+        String url = authorizeUrl(pkce, "s1").replace("localhost%3A8081%2Fmcp", "weather.example%2Fmcp");
+        String code = approve("user2", url);
+
+        mvc.perform(tokenRequest(code, pkce.verifier()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_target"));
     }
 
     @Test
     void unregisteredRedirectUriIsRefusedWithoutRedirecting() throws Exception {
         // Otherwise an attacker could have the code delivered to their own site.
         Pkce pkce = Pkce.generate();
-        String url = authorizeUrl(pkce, "s1").replace("localhost%3A3334", "evil.example");
+        String url = authorizeUrl(pkce, "s1").replace("127.0.0.1%3A3334", "evil.example");
         mvc.perform(get(URI.create(url)).with(user("user1")))
                 .andExpect(status().isBadRequest());
     }
@@ -195,9 +245,26 @@ class AuthorizationCodeFlowTests {
     // Already URL-encoded, so callers pass it as a URI: MockMvc's get(String) would encode it a second time.
     private static String authorizeUrl(Pkce pkce, String state) {
         return "/oauth2/authorize?response_type=code&client_id=" + CLIENT_ID
-                + "&redirect_uri=http%3A%2F%2Flocalhost%3A3334%2Foauth%2Fcallback"
+                + "&redirect_uri=http%3A%2F%2F127.0.0.1%3A3334%2Foauth%2Fcallback"
                 + "&scope=petstore.read&state=" + state
-                + "&code_challenge=" + pkce.challenge() + "&code_challenge_method=S256";
+                + "&code_challenge=" + pkce.challenge() + "&code_challenge_method=S256"
+                // Which server the token is for, as mcp-remote sends it (RFC 8707).
+                + "&resource=http%3A%2F%2Flocalhost%3A8081%2Fmcp";
+    }
+
+    /** Logs in as {@code username}, approves the consent page and returns the code. */
+    private String approve(String username, String authorizeUrl) throws Exception {
+        MvcResult consentPage = mvc.perform(get(URI.create(authorizeUrl)).with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+        MvcResult approved = mvc.perform(post("/oauth2/authorize").with(user(username))
+                        .param("client_id", CLIENT_ID)
+                        .param("state", hiddenInput(consentPage.getResponse().getContentAsString(), "state"))
+                        .param("scope", "petstore.read"))
+                .andExpect(status().isFound())
+                .andReturn();
+        return UriComponentsBuilder.fromUriString(approved.getResponse().getRedirectedUrl()).build()
+                .getQueryParams().getFirst("code");
     }
 
     private static org.springframework.test.web.servlet.RequestBuilder tokenRequest(String code, String verifier) {
@@ -207,6 +274,13 @@ class AuthorizationCodeFlowTests {
                 .param("redirect_uri", REDIRECT_URI)
                 .param("client_id", CLIENT_ID)
                 .param("code_verifier", verifier);
+    }
+
+    private static org.springframework.test.web.servlet.RequestBuilder refreshRequest(String refreshToken) {
+        return post("/oauth2/token")
+                .param("grant_type", "refresh_token")
+                .param("refresh_token", refreshToken)
+                .param("client_id", CLIENT_ID);
     }
 
     private static String hiddenInput(String html, String name) {

@@ -13,4 +13,7 @@ dependencyManagement {
 // Deliberately no dependency on :petstore-api; the gateway only knows the API's HTTP contract.
 dependencies {
     implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
+    // Checks the bearer token on every /mcp request and publishes protected resource metadata (RFC 9728)
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
 }

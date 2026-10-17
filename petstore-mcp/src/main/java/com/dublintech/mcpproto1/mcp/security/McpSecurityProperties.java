@@ -13,8 +13,11 @@ import java.util.List;
  *                       localhost or 127.0.0.1 depending on the URL typed. Non-browser clients send no Origin header
  *                       and never need an entry here; that includes Claude Desktop, whose route is
  *                       Claude Desktop → stdio → mcp-remote (Node.js) → HTTP → /mcp.
+ * @param resource       this server's identity as an OAuth protected resource: the URL clients send as the
+ *                       {@code resource} parameter, and the audience every access token must be issued for
  */
 @ConfigurationProperties("petstore.mcp")
 public record McpSecurityProperties(
-        @DefaultValue({"http://localhost:6274", "http://127.0.0.1:6274"}) List<String> allowedOrigins) {
+        @DefaultValue({"http://localhost:6274", "http://127.0.0.1:6274"}) List<String> allowedOrigins,
+        @DefaultValue("http://localhost:8081/mcp") String resource) {
 }

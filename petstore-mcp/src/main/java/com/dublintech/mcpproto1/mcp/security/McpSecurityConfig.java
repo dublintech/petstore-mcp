@@ -6,17 +6,42 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Registers the MCP endpoint's transport-level protections.
+ * The MCP endpoint's protections: the Origin check, then OAuth.
  *
  * <p>The MCP SDK has its own {@code DefaultServerTransportSecurityValidator}, and the WebMVC transport accepts one,
  * but Spring AI 2.0.1's auto-configuration never sets it, leaving the no-op validator in place. A servlet filter
  * adds the check without replacing Spring AI's transport bean.
+ *
+ * <p>For OAuth the gateway is a resource server, as the MCP authorization spec requires:
+ * <ul>
+ *   <li>A request without a valid token gets {@code 401} with
+ *       {@code WWW-Authenticate: Bearer resource_metadata="..."}, which tells the client where to read the
+ *       protected resource metadata.</li>
+ *   <li>That metadata, at {@code /.well-known/oauth-protected-resource}, names the authorization server (RFC 9728).</li>
+ *   <li>A token is accepted only if its signature checks out against the authorization server's published key, it
+ *       hasn't expired, and its issuer and audience are right (the {@code spring.security.oauth2.resourceserver.jwt}
+ *       properties).</li>
+ * </ul>
+ *
+ *  MCP makes some parts of the OAuth spec compulsory.  For example:
+ *  1. Must be /.well-know/oauth-protected-resource endpoint.  mcp-remote will hit this early.  This tells mcp-remote
+ *  where to go to next ("authorization_servers":"http://localhost:9000") and the resource ("resource":"http://localhost:8081/mcp")
+ *  2.
+ *
+ *
  */
 @Configuration
 @EnableConfigurationProperties(McpSecurityProperties.class)
 public class McpSecurityConfig {
+
+    static final String READ_SCOPE = "petstore.read";
+    static final String BUY_SCOPE = "petstore.buy";
 
     @Bean
     FilterRegistrationBean<OriginValidationFilter> originValidationFilter(
@@ -25,8 +50,34 @@ public class McpSecurityConfig {
         FilterRegistrationBean<OriginValidationFilter> registration =
                 new FilterRegistrationBean<>(new OriginValidationFilter(properties.allowedOrigins()));
         registration.addUrlPatterns(mcpEndpoint, mcpEndpoint + "/*");
-        // Run before anything else touches the request.
+        // Run before anything else touches the request, Spring Security included.
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;
+    }
+
+    @Bean
+    SecurityFilterChain mcpSecurityFilterChain(HttpSecurity httpSecurity, McpSecurityProperties properties,
+            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer) throws Exception {
+        httpSecurity
+                // Every request needs a token that includes petstore.read. (The metadata endpoint is answered by
+                // its own filter before this rule is checked, so clients can read it without a token.)
+                .authorizeHttpRequests(authorize -> authorize.anyRequest().hasAuthority("SCOPE_" + READ_SCOPE))
+                .oauth2ResourceServer(resourceServer -> resourceServer
+                        .jwt(Customizer.withDefaults())
+                        .protectedResourceMetadata(metadata -> metadata.protectedResourceMetadataCustomizer(
+                                builder -> builder
+                                        .resource(properties.resource())
+                                        .authorizationServer(issuer)
+                                        .scope(READ_SCOPE)
+                                        .scope(BUY_SCOPE)
+                                        .resourceName("Petstore MCP")
+                                        // Spring's default is true, which claims tokens are tied to a client TLS
+                                        // certificate (RFC 8705). Ours are plain bearer tokens.
+                                        .tlsClientCertificateBoundAccessTokens(false))))
+                // The token travels in a header, never a cookie, so there is no CSRF risk and no need for an HTTP
+                // session. (The MCP session is separate: the Mcp-Session-Id header.)
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        return httpSecurity.build();
     }
 }
