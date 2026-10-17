@@ -8,8 +8,11 @@ It's a learning project. The point is less the pet store than the architecture q
 server should sit in front of an existing API, and what changes when the caller is a language model.
 
 ```
-Claude Desktop ─stdio─▶ mcp-remote ─Streamable HTTP─▶ petstore-mcp :8081 ─REST─▶ petstore-api :8080
-  (MCP host)              (bridge)                    (MCP server / gateway)       (backend)
+Claude Desktop ─stdio─▶ mcp-remote ─Streamable HTTP + token─▶ petstore-mcp :8081 ─REST─▶ petstore-api :8080
+  (MCP host)              (bridge)                            (MCP server / gateway)       (backend)
+                              │ login, tokens                         │ signing keys
+                              ▼                                       ▼
+                         petstore-auth :9000 (authorization server) ◀─┘
 ```
 
 ## Modules
@@ -18,24 +21,25 @@ Claude Desktop ─stdio─▶ mcp-remote ─Streamable HTTP─▶ petstore-mcp :
 |---|---|---|
 | [`petstore-api`](petstore-api) | 8080 | The Petstore REST API: all 20 operations under `/v2`, an in-memory store seeded from [sample data](petstore-api/src/main/resources/sample-data) at startup, and its own spec at `GET /v2/openapi.json`. Knows nothing about MCP. |
 | [`petstore-mcp`](petstore-mcp) | 8081 | The MCP gateway, served at `/mcp`. It has **no dependency** on `petstore-api` and reaches it only over HTTP through [`PetstoreApiClient`](petstore-mcp/src/main/java/com/dublintech/mcpproto1/mcp/client/PetstoreApiClient.java). |
-| [`petstore-auth`](petstore-auth) | 9000 | The OAuth 2.1 authorization server: login, consent and signed JWT access tokens (Authorization Code + PKCE). Not yet required by the other two; see [Security](#security). |
+| [`petstore-auth`](petstore-auth) | 9000 | The OAuth 2.1 authorization server: login, consent and signed JWT access tokens (Authorization Code + PKCE). The gateway accepts only its tokens; see [Security](#security). |
 
 Built with Java 21, Spring Boot 4.1.1 and Spring AI 2.0.1 (MCP Java SDK 2.0.0, protocol up to `2025-11-25`).
 
 ## Running it
 
-Start each app in its own terminal, the API first:
+Start each app in its own terminal:
 
 ```bash
 ./gradlew :petstore-api:bootRun     # http://localhost:8080/v2
+./gradlew :petstore-auth:bootRun    # http://localhost:9000
 ./gradlew :petstore-mcp:bootRun     # http://localhost:8081/mcp
-./gradlew :petstore-auth:bootRun    # http://localhost:9000 (optional for now)
 ```
 
 Run the tests for all modules with `./gradlew test`. (On Windows PowerShell, use `.\gradlew.bat`.)
 
 Data lives in memory, so restarting the API resets it to the sample set. Sample users are `user1`–`user3`
-with passwords `password1`–`password3`.
+with passwords `password1`–`password3`. The authorization server also keeps everything in memory, including its
+signing key, so restarting it logs every client out.
 
 ### Try the REST API
 
@@ -71,38 +75,45 @@ curl -s localhost:8080/v2/openapi.json
 
 ## Connecting a client
 
-**Claude Code** supports HTTP MCP servers directly:
-
-```bash
-claude mcp add --transport http petstore http://localhost:8081/mcp
-```
-
 **Claude Desktop** launches local servers over stdio, so it reaches the HTTP gateway through the
-[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge (needs Node.js). Add this to
-`claude_desktop_config.json` (**Settings → Developer → Edit Config**), then fully quit and reopen Claude Desktop:
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge (needs Node.js), which also does the OAuth login.
+Add this to `claude_desktop_config.json` (**Settings → Developer → Edit Config**), then fully quit and reopen
+Claude Desktop:
 
 ```json
 {
   "mcpServers": {
     "petstore": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "http://localhost:8081/mcp"]
+      "args": ["-y", "mcp-remote@0.15.0", "http://localhost:8081/mcp", "3334",
+               "--static-oauth-client-info", "{\"client_id\":\"petstore-mcp-client\"}",
+               "--auth-timeout", "120"]
     }
   }
 }
 ```
+
+On startup a browser opens at the authorization server: log in and approve the scopes. `3334` is the callback
+port registered for the client (`http://127.0.0.1:3334/oauth/callback`), and `--static-oauth-client-info` names
+the pre-registered client, because `petstore-auth` doesn't support dynamic client registration. `mcp-remote`
+keeps the tokens in `~/.mcp-auth` and refreshes them without the browser.
 
 The Microsoft Store build of Claude Desktop keeps this file under
 `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\`, not `%APPDATA%\Claude\`. Tools and prompts
 appear under the **+** menu. Claude Desktop doesn't request resource templates, so the two `pets/{petId}`
 resources only show up in clients that do.
 
-**MCP Inspector**: run `npx @modelcontextprotocol/inspector`, choose *Streamable HTTP* and connect to
-`http://localhost:8081/mcp`.
+Claude Code, the MCP Inspector and the [Bruno collection](bruno/petstore-mcp) don't have a login set up yet, so
+the gateway answers them with `401`. (Bruno holds raw JSON-RPC requests for the session handshake, tools,
+resources, prompts and ending a session; `01` saves the `Mcp-Session-Id` for the rest.)
 
-**Bruno**: open [`bruno/petstore-mcp`](bruno/petstore-mcp) as a collection for raw JSON-RPC requests covering the
-session handshake, tools, resources (including templates), prompts and ending a session. Run requests `01` and
-`02` first; `01` saves the `Mcp-Session-Id` for the rest.
+### Watching the traffic
+
+[`scripts/trace/trace.ps1`](scripts/trace/trace.ps1) puts [mitmweb](https://mitmproxy.org/) (`pip install
+mitmproxy`) in front of all three apps and records every HTTP request between Claude Desktop's `mcp-remote`
+processes, the browser, the gateway, the authorization server and the API. Each flow is labelled with the process
+that sent it. Start it first, then the apps on the back-door ports it prints. Recordings go to `build/trace/` and
+contain passwords and tokens.
 
 ## Design notes
 
@@ -163,20 +174,26 @@ tools above cover those.
 | 0 | Origin validation on `/mcp` (DNS rebinding) and loopback binding | Done |
 | 1 | Authorization server (`petstore-auth`): logins, consent, signed JWT access tokens | Done |
 | 2 | API checks tokens (resource server) | Planned |
-| 3 | Gateway checks tokens and advertises its authorization server (`401` + protected resource metadata) | Planned |
-| 4 | Claude Desktop logs in through `mcp-remote` (Authorization Code + PKCE) | Planned |
+| 3 | Gateway checks tokens and advertises its authorization server (`401` + protected resource metadata) | Done |
+| 4 | Claude Desktop logs in through `mcp-remote` (Authorization Code + PKCE, rotating refresh tokens) | Done |
 | 5 | Gateway gets its own token for the API (no token passthrough) | Planned |
 | 6 | Token exchange so the API knows which user is behind a gateway call | Planned |
 | 7 | Per-user data: users see only their own orders | Planned |
 | 8 | Step-up: `buyPet` needs an extra `petstore.buy` consent | Planned |
 
-Steps 3 and 4 go together: once the gateway demands a token, Claude Desktop needs the updated `mcp-remote`
-settings to keep working. Steps 2 and 5 go together for the same reason: once the API demands a token, the gateway
-needs its own.
+Steps 2 and 5 go together: once the API demands a token, the gateway needs its own.
+
+The gateway accepts a token only if it is signed by `petstore-auth`, unexpired, issued by `http://localhost:9000`
+and meant for it (`aud` = `http://localhost:8081/mcp`, from the `resource` parameter), and every request needs
+`petstore.read`. [`TokenValidationTests`](petstore-mcp/src/test/java/com/dublintech/mcpproto1/mcp/security/TokenValidationTests.java)
+tries the tokens that must fail.
 
 ## Known limitations
 
-- Authentication is not finished yet (see the security roadmap); for now both apps are meant for localhost only.
+- Authentication is not finished yet (see the security roadmap): the API itself still accepts anyone, so all
+  three apps are meant for localhost only.
+- The authorization server's signing key, sessions and refresh tokens are in memory, so a restart means logging in
+  again.
 - `buyPet` checks availability and then orders as separate calls, so two concurrent buyers could both pass the
   check. A real fix needs a conditional update in the API.
 - Free text in successful results (such as pet names) still reaches the model, as structured data.

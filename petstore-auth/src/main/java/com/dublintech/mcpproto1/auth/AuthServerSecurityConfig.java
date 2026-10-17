@@ -1,11 +1,22 @@
 package com.dublintech.mcpproto1.auth;
 
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.SecurityContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.JwtGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2AccessTokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
@@ -62,7 +73,7 @@ import java.util.Set;
  *
  * The OAuth2TokenEndpointFilter has the token endpoint,e.g. POST /oauth2/token.
  *
- *
+ * To trace the flow here:  .\scripts\trace\trace.ps1 again.
  *
  *
  */
@@ -76,7 +87,9 @@ public class AuthServerSecurityConfig {
      * */
     @Bean
     @Order(1)
-    SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity httpSecurity) throws Exception {
+    SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity httpSecurity,
+            JWKSource<SecurityContext> jwkSource, OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer,
+            RegisteredClientRepository registeredClients) throws Exception {
         // oauth2AuthorizationServer adds all the oauth2 filters (auth endpoint, JWKS filter, metadata, introspection
         // revocation, client authentication filter
         httpSecurity.oauth2AuthorizationServer(oAuth2AuthorizationServerConfigurer -> {
@@ -113,6 +126,18 @@ public class AuthServerSecurityConfig {
                     // OIDC features only switch on when the client asks for the scope openid.
                     // Think the token response will contain "id_token"
                     oAuth2AuthorizationServerConfigurer.oidc(Customizer.withDefaults());
+
+                    // Refresh tokens for public clients (see PublicClientRefreshTokens): our own token generator,
+                    // and a way to recognise a public client on a refresh request.
+                    oAuth2AuthorizationServerConfigurer
+                            .tokenGenerator(tokenGenerator(jwkSource, tokenCustomizer))
+                            .clientAuthentication(clientAuthentication -> clientAuthentication
+                                    .authenticationConverter(new PublicClientRefreshTokens.Converter())
+                                    .authenticationProvider(new PublicClientRefreshTokens.Provider(registeredClients)))
+                            // Advertise that public clients ("none": no client secret) can use the token endpoint.
+                            .authorizationServerMetadataEndpoint(metadata -> metadata.authorizationServerMetadataCustomizer(
+                                    builder -> builder.tokenEndpointAuthenticationMethod(
+                                            ClientAuthenticationMethod.NONE.getValue())));
                 })
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
                 .requestCache(cache -> cache.requestCache(authorizeRequestsOnly()))
@@ -136,6 +161,19 @@ public class AuthServerSecurityConfig {
                 .requestCache(cache -> cache.requestCache(authorizeRequestsOnly()))
                 .formLogin(Customizer.withDefaults());
         return httpSecurity.build();
+    }
+
+    /**
+     * The same three generators Spring uses by default (JWT access tokens, opaque access tokens, refresh tokens),
+     * except that the refresh token one also serves public clients. Supplying a generator means Spring no longer
+     * applies the token customizer bean by itself, so it is set on the JWT generator here.
+     */
+    private static OAuth2TokenGenerator<?> tokenGenerator(JWKSource<SecurityContext> jwkSource,
+            OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer) {
+        JwtGenerator jwtGenerator = new JwtGenerator(new NimbusJwtEncoder(jwkSource));
+        jwtGenerator.setJwtCustomizer(tokenCustomizer);
+        return new DelegatingOAuth2TokenGenerator(jwtGenerator, new OAuth2AccessTokenGenerator(),
+                new PublicClientRefreshTokens.Generator());
     }
 
     private static RequestCache authorizeRequestsOnly() {
