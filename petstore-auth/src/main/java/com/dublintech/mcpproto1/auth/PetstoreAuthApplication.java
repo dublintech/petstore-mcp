@@ -48,7 +48,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  *  2. browser → petstore-auth
  *  GET http://localhost:9000/oauth2/authorize?response_type=code&client_id=petstore-mcp-client
- *  &redirect_uri=http://localhost:3334/oauth/callback&scope=petstore.read
+ *  &redirect_uri=http://127.0.0.1:3334/oauth/callback&scope=petstore.read
  *  &state=Xy7stateFromClient&code_challenge=84dFA3u_s-yR_nHy4KHA2QcC-mv_qb-dhT3t9WjWMv4
  *  &code_challenge_method=S256&resource=http://localhost:8081/mcp
  *
@@ -78,7 +78,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *   ← 302 Found
  *     Set-Cookie: JSESSIONID=36C3B7F3…; Path=/; HttpOnly
  *     Location: http://localhost:9000/oauth2/authorize?response_type=code&client_id=petstore-mcp-client
- *               &redirect_uri=http%3A%2F%2Flocalhost%3A3334%2Foauth%2Fcallback&scope=petstore.read
+ *               &redirect_uri=http%3A%2F%2F127.0.0.1%3A3334%2Foauth%2Fcallback&scope=petstore.read
  *               &state=Xy7stateFromClient&code_challenge=84dFA3u_…&code_challenge_method=S256
  *               &resource=http%3A%2F%2Flocalhost%3A8081%2Fmcp&continue
  *
@@ -98,9 +98,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *   Body:    client_id=petstore-mcp-client&state=7CKgjBRFqosqTN18bFYsdQMhp0DG7rGk5LkEwgpTONU%3D&scope=petstore.read
  *
  *   ← 302 Found
- *     Location: http://localhost:3334/oauth/callback?code=dZg3lRkc5fPQp8SW…&state=Xy7stateFromClient
+ *     Location: http://127.0.0.1:3334/oauth/callback?code=dZg3lRkc5fPQp8SW…&state=Xy7stateFromClient
  *  6½. browser → mcp-remote's listener
- *   GET http://localhost:3334/oauth/callback
+ *   GET http://127.0.0.1:3334/oauth/callback
  *   Query: code=dZg3lRkc5fPQp8SW…  state=Xy7stateFromClient   Body: none
  *
  *   ← 200 OK  (mcp-remote shows a "you can close this window" page; it checks that state matches)
@@ -110,13 +110,14 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *   Headers: Content-Type: application/x-www-form-urlencoded
  *   Body:    grant_type=authorization_code
  *            code=dZg3lRkc5fPQp8SW…
- *            redirect_uri=http://localhost:3334/oauth/callback
+ *            redirect_uri=http://127.0.0.1:3334/oauth/callback
  *            client_id=petstore-mcp-client
  *            code_verifier=-33EOyPRUXzi8ingPsqT13N0JHHkb6ZX4PRlfcMA43Q
  *            resource=http://localhost:8081/mcp
  *
  *    ← 200 OK  Content-Type: application/json
- *     {"access_token":"eyJraWQiOiI3NDRjZjcwZC…","scope":"petstore.read","token_type":"Bearer","expires_in":299}
+ *     {"access_token":"eyJraWQiOiI3NDRjZjcwZC…","refresh_token":"0QWmdINfaFz7…","scope":"petstore.read",
+ *      "token_type":"Bearer","expires_in":299}
  *
  *  8. gateway → petstore-auth (from step 3)
  *   GET http://localhost:9000/oauth2/jwks
@@ -125,7 +126,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *   ← 200 OK  Content-Type: application/json
  *     {"keys":[{"kty":"RSA","e":"AQAB","kid":"744cf70d-ace8-46cf-b80a-377888533f4e","n":"8cY8L42j2OhDHXEe…"}]}
  *
- *   9. mcp-remote → gateway, on every MCP call (planned, step 3)
+ *   9. mcp-remote → gateway, on every MCP call
  *   POST http://localhost:8081/mcp
  *   Headers: Authorization: Bearer eyJraWQiOiI3NDRjZjcwZC…   Mcp-Session-Id: …
  *   Body:    {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"searchPets","arguments":{...}}}
