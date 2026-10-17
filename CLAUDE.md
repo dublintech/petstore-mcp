@@ -5,27 +5,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 The Swagger Petstore as a Spring Boot REST API, plus a separate MCP gateway that exposes it to AI clients as
-tools, resources and prompts. It's a learning project about MCP architecture; see `README.md` for the user-facing
+tools, resources and prompts, and an OAuth 2.1 authorization server that is being wired in step by step (see the
+security roadmap in `README.md`). It's a learning project about MCP architecture; see `README.md` for the user-facing
 overview. Remote: https://github.com/dublintech/petstore-mcp
 
 - Gradle 9.8.1 multi-module build (Groovy DSL); shared config in the root `build.gradle` `subprojects {}` block
-- Java 21, Spring Boot 4.1.1 (Spring MVC), Spring AI 2.0.1 (MCP Java SDK 2.0.0) in `petstore-mcp` only
+- Java 21, Spring Boot 4.1.1 (Spring MVC), Spring AI 2.0.1 (MCP Java SDK 2.0.0) in `petstore-mcp` only;
+  `petstore-auth` uses Spring Security 7.1 (`spring-boot-starter-security-oauth2-authorization-server`)
 - Base package `com.dublintech.mcpproto1`; configuration in `application.properties` (not YAML)
 
 | Module | Port | Main class |
 |---|---|---|
 | `petstore-api` | 8080 | `com.dublintech.mcpproto1.PetstoreApiApplication` |
 | `petstore-mcp` | 8081 | `com.dublintech.mcpproto1.mcp.PetstoreMcpApplication` (MCP endpoint `/mcp`) |
+| `petstore-auth` | 9000 | `com.dublintech.mcpproto1.auth.PetstoreAuthApplication` (issuer `http://localhost:9000`) |
 
 ## Commands
 
 Use the wrapper (`./gradlew` in bash, `.\gradlew.bat` in PowerShell):
 
 ```bash
-./gradlew test                                  # all tests, both modules
+./gradlew test                                  # all tests, all modules
 ./gradlew :petstore-mcp:test --tests "com.dublintech.mcpproto1.mcp.ErrorSafetyTests"   # one class
 ./gradlew :petstore-api:bootRun                 # start the API first
 ./gradlew :petstore-mcp:bootRun                 # then the gateway
+./gradlew :petstore-auth:bootRun                # authorization server (not yet required by the others)
 ./gradlew bootJar                               # jars in <module>/build/libs/
 ```
 
@@ -74,6 +78,21 @@ background processes to be stopped under memory pressure.
   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json` and
   reaches the gateway through `npx mcp-remote http://localhost:8081/mcp`. Its MCP logs are in
   `%LOCALAPPDATA%\Claude\Logs\`. It never calls `resources/templates/list`.
+
+## Authorization server (`petstore-auth`)
+
+- One pre-registered **public** client, `petstore-mcp-client` (no secret, PKCE required, consent on), with redirect
+  URI `http://localhost:3334/oauth/callback` for `mcp-remote`; users `user1`–`user3` in `UserAccountsConfig`.
+  Client settings live in `application.properties`.
+- `AuthServerSecurityConfig` defines both security chains explicitly; declaring any `SecurityFilterChain` bean
+  turns off all of Boot's defaults. The request cache only saves `/oauth2/authorize`, otherwise a stray browser
+  request (favicon, DevTools probe, `/error`) replaces it and login ends on a Whitelabel 999 page.
+  `AuthorizationCodeFlowTests` covers this.
+- The signing key is generated at startup, so a restart invalidates every token. Public clients get no refresh
+  token. The `resource` parameter is not yet copied into `aud` (needed for step 3).
+- The OAuth endpoints are filters, not controllers. To list each chain's filters, run with
+  `--logging.level.org.springframework.security.web.DefaultSecurityFilterChain=DEBUG`.
+- In MockMvc tests, pass already-encoded URLs as `URI.create(...)`; `get(String)` encodes them a second time.
 
 ## Working agreements
 
