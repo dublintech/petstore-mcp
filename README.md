@@ -18,6 +18,7 @@ Claude Desktop ─stdio─▶ mcp-remote ─Streamable HTTP─▶ petstore-mcp :
 |---|---|---|
 | [`petstore-api`](petstore-api) | 8080 | The Petstore REST API: all 20 operations under `/v2`, an in-memory store seeded from [sample data](petstore-api/src/main/resources/sample-data) at startup, and its own spec at `GET /v2/openapi.json`. Knows nothing about MCP. |
 | [`petstore-mcp`](petstore-mcp) | 8081 | The MCP gateway, served at `/mcp`. It has **no dependency** on `petstore-api` and reaches it only over HTTP through [`PetstoreApiClient`](petstore-mcp/src/main/java/com/dublintech/mcpproto1/mcp/client/PetstoreApiClient.java). |
+| [`petstore-auth`](petstore-auth) | 9000 | The OAuth 2.1 authorization server: login, consent and signed JWT access tokens (Authorization Code + PKCE). Not yet required by the other two; see [Security](#security). |
 
 Built with Java 21, Spring Boot 4.1.1 and Spring AI 2.0.1 (MCP Java SDK 2.0.0, protocol up to `2025-11-25`).
 
@@ -28,9 +29,10 @@ Start each app in its own terminal, the API first:
 ```bash
 ./gradlew :petstore-api:bootRun     # http://localhost:8080/v2
 ./gradlew :petstore-mcp:bootRun     # http://localhost:8081/mcp
+./gradlew :petstore-auth:bootRun    # http://localhost:9000 (optional for now)
 ```
 
-Run the tests for both modules with `./gradlew test`. (On Windows PowerShell, use `.\gradlew.bat`.)
+Run the tests for all modules with `./gradlew test`. (On Windows PowerShell, use `.\gradlew.bat`.)
 
 Data lives in memory, so restarting the API resets it to the sample set. Sample users are `user1`–`user3`
 with passwords `password1`–`password3`.
@@ -117,9 +119,64 @@ session handshake, tools, resources (including templates), prompts and ending a 
   wires the legacy SSE transport and `/mcp` returns 404. Sessions are stateful (`Mcp-Session-Id`), so running
   several gateway instances would need sticky sessions or the stateless mode.
 
+## Security
+
+Security is being added step by step, following the
+[MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) (OAuth 2.1).
+
+### What problem OAuth solves, in plain terms
+
+Without it, the store has no locks: any program on the machine can browse, buy a pet or read any user's details,
+and nobody is ever asked who they are. OAuth adds four things:
+
+1. **Who are you?** You prove who you are once, to one trusted place (the authorization server), and every
+   request then carries proof that it's on your behalf.
+2. **What may you do?** When you log in, you approve what the app may do for you, such as browsing
+   (`petstore.read`) but not buying (`petstore.buy`). The agent gets exactly those powers.
+3. **Your password is never handed around.** You type it only at the authorization server. Claude Desktop,
+   `mcp-remote`, the gateway and the API never see it; they get a **token** instead.
+4. **A leak does limited damage.** A token expires quickly, works at only one service, allows only the actions
+   you approved, and reveals nothing about your password.
+
+It works like a hotel key card:
+
+| Hotel | This system |
+|---|---|
+| Reception checks your ID once | You log in at the **authorization server** |
+| You get a key card, not the master key | You get an **access token**, not your password |
+| The card opens your room and the gym, not other rooms | **Scopes** and **audience**: only certain actions, at certain services |
+| It stops working at checkout | The token **expires** |
+| Each door reads the card itself, without phoning reception | The gateway and API **verify the token's signature themselves** |
+
+This matters more with AI because you are lending power to an agent. OAuth is built for lending limited power
+without handing over your keys, like a car's valet key that can drive but not open the boot. The token stays
+inside `mcp-remote`, so the model never sees it.
+
+OAuth controls who may do what. It does not stop a malicious tool description, a prompt injection, or a user
+approving something they shouldn't; the safe error handling, confirmation before `buyPet` and least-privilege
+tools above cover those.
+
+### Roadmap
+
+| Step | What | Status |
+|---|---|---|
+| 0 | Origin validation on `/mcp` (DNS rebinding) and loopback binding | Done |
+| 1 | Authorization server (`petstore-auth`): logins, consent, signed JWT access tokens | Done |
+| 2 | API checks tokens (resource server) | Planned |
+| 3 | Gateway checks tokens and advertises its authorization server (`401` + protected resource metadata) | Planned |
+| 4 | Claude Desktop logs in through `mcp-remote` (Authorization Code + PKCE) | Planned |
+| 5 | Gateway gets its own token for the API (no token passthrough) | Planned |
+| 6 | Token exchange so the API knows which user is behind a gateway call | Planned |
+| 7 | Per-user data: users see only their own orders | Planned |
+| 8 | Step-up: `buyPet` needs an extra `petstore.buy` consent | Planned |
+
+Steps 3 and 4 go together: once the gateway demands a token, Claude Desktop needs the updated `mcp-remote`
+settings to keep working. Steps 2 and 5 go together for the same reason: once the API demands a token, the gateway
+needs its own.
+
 ## Known limitations
 
-- No authentication on either app; both are meant for localhost.
+- Authentication is not finished yet (see the security roadmap); for now both apps are meant for localhost only.
 - `buyPet` checks availability and then orders as separate calls, so two concurrent buyers could both pass the
   check. A real fix needs a conditional update in the API.
 - Free text in successful results (such as pet names) still reaches the model, as structured data.
