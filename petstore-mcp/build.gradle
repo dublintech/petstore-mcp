@@ -15,5 +15,7 @@ dependencies {
     implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
     // Checks the bearer token on every /mcp request and publishes protected resource metadata (RFC 9728)
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+    // Exchanges the user's token for one meant for the API (RFC 8693) before calling it
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-client'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
 }

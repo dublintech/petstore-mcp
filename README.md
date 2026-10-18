@@ -8,18 +8,18 @@ It's a learning project. The point is less the pet store than the architecture q
 server should sit in front of an existing API, and what changes when the caller is a language model.
 
 ```
-Claude Desktop ─stdio─▶ mcp-remote ─Streamable HTTP + token─▶ petstore-mcp :8081 ─REST─▶ petstore-api :8080
-  (MCP host)              (bridge)                            (MCP server / gateway)       (backend)
-                              │ login, tokens                         │ signing keys
-                              ▼                                       ▼
-                         petstore-auth :9000 (authorization server) ◀─┘
+Claude Desktop ─stdio─▶ mcp-remote ─Streamable HTTP + token─▶ petstore-mcp :8081 ─REST + API token─▶ petstore-api :8080
+  (MCP host)              (bridge)                            (MCP server / gateway)                  (backend)
+                              │ login, tokens                         │ signing keys,                      │ signing
+                              ▼                                       ▼ token exchange                     ▼ keys
+                         petstore-auth :9000 (authorization server) ◀─┴────────────────────────────────────┘
 ```
 
 ## Modules
 
 | Module | Port | What it is |
 |---|---|---|
-| [`petstore-api`](petstore-api) | 8080 | The Petstore REST API: all 20 operations under `/v2`, an in-memory store seeded from [sample data](petstore-api/src/main/resources/sample-data) at startup, and its own spec at `GET /v2/openapi.json`. Knows nothing about MCP. |
+| [`petstore-api`](petstore-api) | 8080 | The Petstore REST API: all 20 operations under `/v2`, an in-memory store seeded from [sample data](petstore-api/src/main/resources/sample-data) at startup, and its own spec at `GET /v2/openapi.json`. Accepts only tokens meant for it. Knows nothing about MCP. |
 | [`petstore-mcp`](petstore-mcp) | 8081 | The MCP gateway, served at `/mcp`. It has **no dependency** on `petstore-api` and reaches it only over HTTP through [`PetstoreApiClient`](petstore-mcp/src/main/java/com/dublintech/mcpproto1/mcp/client/PetstoreApiClient.java). |
 | [`petstore-auth`](petstore-auth) | 9000 | The OAuth 2.1 authorization server: login, consent and signed JWT access tokens (Authorization Code + PKCE). The gateway accepts only its tokens; see [Security](#security). |
 
@@ -44,11 +44,12 @@ signing key, so restarting it logs every client out.
 ### Try the REST API
 
 ```bash
-curl -s localhost:8080/v2/pet/1
-curl -s "localhost:8080/v2/pet/findByStatus?status=available"
-curl -s localhost:8080/v2/store/inventory
-curl -s localhost:8080/v2/openapi.json
+curl -s localhost:8080/v2/openapi.json     # public: the contract
+curl -si localhost:8080/v2/pet/1           # 401: every other endpoint needs a token
 ```
+
+Only the gateway gets tokens for the API, by exchanging the user's token (see [Security](#security)), so the
+API's data is reached through an MCP client, or in the API's own tests.
 
 ## What the gateway offers
 
@@ -176,27 +177,35 @@ and which values are secret.
 |---|---|---|
 | 0 | Origin validation on `/mcp` (DNS rebinding) and loopback binding | Done |
 | 1 | Authorization server (`petstore-auth`): logins, consent, signed JWT access tokens | Done |
-| 2 | API checks tokens (resource server) | Planned |
+| 2 | API checks tokens (resource server) | Done |
 | 3 | Gateway checks tokens and advertises its authorization server (`401` + protected resource metadata) | Done |
 | 4 | Claude Desktop logs in through `mcp-remote` (Authorization Code + PKCE, rotating refresh tokens) | Done |
-| 5 | Gateway gets its own token for the API (no token passthrough) | Planned |
-| 6 | Token exchange so the API knows which user is behind a gateway call | Planned |
+| 5 | Gateway gets its own token for the API (no token passthrough) | Done |
+| 6 | Token exchange so the API knows which user is behind a gateway call | Done |
 | 7 | Per-user data: users see only their own orders | Planned |
 | 8 | Step-up: `buyPet` needs an extra `petstore.buy` consent | Planned |
-
-Steps 2 and 5 go together: once the API demands a token, the gateway needs its own.
 
 The gateway accepts a token only if it is signed by `petstore-auth`, unexpired, issued by `http://localhost:9000`
 and meant for it (`aud` = `http://localhost:8081/mcp`, from the `resource` parameter), and every request needs
 `petstore.read`. [`TokenValidationTests`](petstore-mcp/src/test/java/com/dublintech/mcpproto1/mcp/security/TokenValidationTests.java)
 tries the tokens that must fail.
 
+The API refuses that token: it isn't meant for the API. So the gateway exchanges it at `petstore-auth` (RFC 8693)
+for one with `aud` = `http://localhost:8080`, the same user and scopes, and an `act` claim naming the gateway. It
+proves who it is with a client secret and its own `client_credentials` token. The API then checks the scope per
+endpoint: `petstore.read` for reading, `petstore.buy` for the calls `buyPet` makes, so a user who approved only
+reading can't buy, whatever the model attempts. Each order is logged with the user and the actor.
+[`ApiSecurityTests`](petstore-api/src/test/java/com/dublintech/mcpproto1/security/ApiSecurityTests.java),
+[`TokenExchangeTests`](petstore-auth/src/test/java/com/dublintech/mcpproto1/auth/TokenExchangeTests.java) and
+[`ApiTokenPropagationTests`](petstore-mcp/src/test/java/com/dublintech/mcpproto1/mcp/security/ApiTokenPropagationTests.java)
+cover it.
+
 ## Known limitations
 
-- Authentication is not finished yet (see the security roadmap): the API itself still accepts anyone, so all
-  three apps are meant for localhost only.
+- All three apps are meant for localhost only: plain http, a development client secret, and in-memory state.
 - The authorization server's signing key, sessions and refresh tokens are in memory, so a restart means logging in
   again.
+- The token log shows what authority was used for a purchase, not whether the user meant it; step 8 adds that.
 - `buyPet` checks availability and then orders as separate calls, so two concurrent buyers could both pass the
   check. A real fix needs a conditional update in the API.
 - Free text in successful results (such as pet names) still reaches the model, as structured data.

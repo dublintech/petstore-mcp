@@ -73,13 +73,20 @@ sequenceDiagram
     G->>A: GET /.well-known/openid-configuration + /oauth2/jwks (first token only, cached 5 min)
     A-->>G: 200 🟢 public key. The private key never leaves petstore-auth.
     Note over G: checks locally: signature, exp,<br/>🟣 iss, 🟣 aud, 🟣 scope petstore.read
+    G->>A: POST /oauth2/token: ⚪ grant_type=client_credentials, 🔒 gateway secret (Basic auth). First time only.
+    A-->>G: 200 🟢🔒 the gateway's own token (sub = aud = petstore-gateway)
+    G->>A: POST /oauth2/token: ⚪ grant_type=token-exchange, 🔒 subject_token (the user's), 🔒 actor_token (the gateway's), 🟣 resource=http://localhost:8080
+    Note over A: checks the gateway's secret, that the user's token is meant for the gateway,<br/>and no more scope than the user approved
+    A-->>G: 200 🟢🔒 API token: sub=user1, aud=http://localhost:8080, the user's scopes, act=petstore-gateway
+    Note over G: cached per user token until it expires
     G-->>R: 200 capabilities, 🟢 Mcp-Session-Id
     end
 
     rect rgba(128, 128, 128, 0.10)
     Note over R,P: Using the tools
     R->>G: POST /mcp tools/call findPetsByStatus, Bearer 🔒, Mcp-Session-Id
-    G->>P: GET /v2/pet/findByStatus?status=available (no token yet: roadmap step 5)
+    G->>P: GET /v2/pet/findByStatus?status=available, Bearer 🔒 API token
+    Note over P: checks 🟣 aud = http://localhost:8080 and 🟣 scope petstore.read
     P-->>G: 200 pets
     G-->>R: 200 result
     loop every ~5 minutes
@@ -100,6 +107,8 @@ The token names two servers, in two claims:
 | `iss` | `http://localhost:9000` | Issued by one authorization server, petstore-auth |
 | `aud` | `http://localhost:8081/mcp` | Accepted by one resource server, the gateway. Any other service should refuse it. |
 
+The API token from the exchange has the same `iss` but `aud` = `http://localhost:8080`: only the API accepts it.
+
 ## Who holds what
 
 ● holds it · 🔒 holds it and it's secret · ○ holds only the public half or a hash
@@ -115,7 +124,9 @@ The token names two servers, in two claims:
 | authorization code | short-lived secret | 🔒 | 🔒 | 🔒 | | Useless without the verifier, single use, 5 minutes |
 | access token | secret | 🔒 | | 🔒 | 🔒 | Lasts 5 minutes; `aud` limits it to the gateway |
 | refresh token | secret | 🔒 | | 🔒 | | Never sent to the gateway; rotates on every use |
-| signing key | secret | | | 🔒 | ○ | The gateway holds only the public half (JWKS) |
+| API token | secret | | | 🔒 | 🔒 | Lasts 5 minutes; also held by the API. Its `aud` is the API, so the gateway can't use it on itself |
+| gateway client secret | secret | | | ○ | 🔒 | petstore-auth keeps only a BCrypt hash |
+| signing key | secret | | | 🔒 | ○ | The gateway and the API hold only the public half (JWKS) |
 
 ## Rules of thumb
 

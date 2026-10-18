@@ -56,6 +56,8 @@ public final class GatewayErrors {
     private static String kindMessage(PetstoreApiException ex) {
         return switch (ex.getKind()) {
             case BAD_REQUEST -> "The Petstore rejected the request as invalid. Check the arguments and try again.";
+            case NOT_ALLOWED -> "The user hasn't allowed this. Buying needs the petstore.buy permission, which the "
+                    + "user grants on the Petstore login page. Nothing was changed. Don't retry; tell the user.";
             case NOT_FOUND -> "The Petstore couldn't find what was asked for.";
             case UNAVAILABLE -> "The Petstore is temporarily unavailable. Don't retry now; tell the user to try again shortly.";
             case SERVER_ERROR, BAD_RESPONSE ->
