@@ -110,11 +110,51 @@ resources, prompts and ending a session; `01` saves the `Mcp-Session-Id` for the
 
 ### Watching the traffic
 
-[`scripts/trace/trace.ps1`](scripts/trace/trace.ps1) puts [mitmweb](https://mitmproxy.org/) (`pip install
-mitmproxy`) in front of all three apps and records every HTTP request between Claude Desktop's `mcp-remote`
-processes, the browser, the gateway, the authorization server and the API. Each flow is labelled with the process
-that sent it. Start it first, then the apps on the back-door ports it prints. Recordings go to `build/trace/` and
-contain passwords and tokens.
+[`scripts/trace/trace.ps1`](scripts/trace/trace.ps1) puts [mitmweb](https://mitmproxy.org/) in front of all three
+apps and records every HTTP request between Claude Desktop's `mcp-remote`, the browser, the gateway, the
+authorization server and the API. Each request is labelled with the process that sent it.
+
+How it works: mitmweb takes over the usual ports (8080, 9000, 8081) and passes each request on to the real app,
+which runs on a "back-door" port with a 1 in front (18080, 19000, 18081). Nothing else changes, so Claude Desktop's
+config stays as it is.
+
+**One-time setup:** install mitmproxy with `pip install mitmproxy`.
+
+**Each time** (Windows PowerShell, every command from the repo root):
+
+1. **Stop the apps** if they're running (Ctrl+C in each window). The proxy needs their ports, and the build below
+   can't replace a jar that's in use.
+2. **Build the jars:**
+   ```powershell
+   .\gradlew.bat bootJar
+   ```
+3. **Start the proxy** in its own window. It prints the next commands, and keeps running until Ctrl+C:
+   ```powershell
+   .\scripts\trace\trace.ps1
+   ```
+4. **Start the three apps**, each in its own window, on the back-door ports:
+   ```powershell
+   java -Xmx256m -jar petstore-api\build\libs\petstore-api-0.0.1-SNAPSHOT.jar --server.port=18080
+   java -Xmx256m -jar petstore-auth\build\libs\petstore-auth-0.0.1-SNAPSHOT.jar --server.port=19000
+   java -Xmx256m -jar petstore-mcp\build\libs\petstore-mcp-0.0.1-SNAPSHOT.jar --server.port=18081
+   ```
+   Wait for each to print `Started ...Application`.
+5. **Fully quit Claude Desktop and reopen it** (quit from the tray icon, not just the window). A browser opens at
+   the Petstore login: log in (`user1` / `password1`) and approve reading.
+6. **Watch the traffic** at http://127.0.0.1:8085/. mitmweb opens this in your browser by itself when it starts.
+   The page is protected by a token that changes every run: if it asks for one, use the full link mitmweb printed
+   in its window (`http://127.0.0.1:8085/?token=...`). The last column says which process sent each request.
+7. **Try it:** ask Claude to list the available pets, then to buy one. The first purchase gets a `403`, and the
+   browser opens again to ask whether Claude may buy (step-up). Approve it, and the purchase goes ahead.
+
+**To start from a clean login,** quit Claude Desktop, delete the `petstore` token files in
+`%USERPROFILE%\.mcp-auth\mcp-remote-v1`, and reopen it.
+
+**When you're done:** Ctrl+C in each app window and in the proxy window, then start the apps normally (without
+`--server.port`).
+
+Recordings are saved to `build/trace/flows-<date>-<time>.mitm` (open one later with `mitmweb -r <file>`). They
+contain passwords, codes and tokens, which is why that folder is git-ignored.
 
 ## Design notes
 
@@ -183,7 +223,8 @@ and which values are secret.
 | 5 | Gateway gets its own token for the API (no token passthrough) | Done |
 | 6 | Token exchange so the API knows which user is behind a gateway call | Done |
 | 7 | Per-user data: users see only their own orders | Planned |
-| 8 | Step-up: `buyPet` needs an extra `petstore.buy` consent | Planned |
+| 8a | Step-up: logins ask for `petstore.read` only; the first `buyPet` triggers a `petstore.buy` consent | Done |
+| 8b | Per-purchase approval: each order is confirmed, with its details, on a `petstore-auth` page | Planned |
 
 The gateway accepts a token only if it is signed by `petstore-auth`, unexpired, issued by `http://localhost:9000`
 and meant for it (`aud` = `http://localhost:8081/mcp`, from the `resource` parameter), and every request needs
@@ -195,6 +236,12 @@ for one with `aud` = `http://localhost:8080`, the same user and scopes, and an `
 proves who it is with a client secret and its own `client_credentials` token. The API then checks the scope per
 endpoint: `petstore.read` for reading, `petstore.buy` for the calls `buyPet` makes, so a user who approved only
 reading can't buy, whatever the model attempts. Each order is logged with the user and the actor.
+
+Buying is approved when it's first needed (step-up). The gateway's `401` names `scope="petstore.read"`, so
+`mcp-remote` logs in for reading only. A `buyPet` call without `petstore.buy` gets
+`403 insufficient_scope, scope="petstore.read petstore.buy"`; `mcp-remote` then reopens the browser, the consent
+page asks for buying, and the call is re-sent with the new token. `petstore-auth` never remembers consent to
+`petstore.buy`, so it is asked for each time.
 [`ApiSecurityTests`](petstore-api/src/test/java/com/dublintech/mcpproto1/security/ApiSecurityTests.java),
 [`TokenExchangeTests`](petstore-auth/src/test/java/com/dublintech/mcpproto1/auth/TokenExchangeTests.java) and
 [`ApiTokenPropagationTests`](petstore-mcp/src/test/java/com/dublintech/mcpproto1/mcp/security/ApiTokenPropagationTests.java)
@@ -205,7 +252,8 @@ cover it.
 - All three apps are meant for localhost only: plain http, a development client secret, and in-memory state.
 - The authorization server's signing key, sessions and refresh tokens are in memory, so a restart means logging in
   again.
-- The token log shows what authority was used for a purchase, not whether the user meant it; step 8 adds that.
+- Step-up approves *buying*, not a particular purchase: once approved, `petstore.buy` stays in the token chain
+  until the login ends, so later purchases in that session need no further approval. Step 8b adds that.
 - `buyPet` checks availability and then orders as separate calls, so two concurrent buyers could both pass the
   check. A real fix needs a conditional update in the API.
 - Free text in successful results (such as pet names) still reaches the model, as structured data.

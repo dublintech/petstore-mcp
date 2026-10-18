@@ -107,6 +107,8 @@ the sending process (`labels.py`).
   `aud` = the API (`http://localhost:8080`). `TokenExchangeRules` adds what Spring doesn't check: an actor token
   that is the client's own, a subject token meant for that client (`petstore.auth.token-exchange.clients`), no more
   scope than the user approved, and an `act` claim. `TokenExchangeTests` covers it.
+- `ConsentConfig` never remembers consent to the scopes in `petstore.auth.consent.always-ask` (`petstore.buy`),
+  so each step-up shows the consent page. `StepUpConsentTests` covers it.
 - Only one `OAuth2TokenCustomizer<JwtEncodingContext>` bean may exist (`ResourceAudienceConfig`); further claim
   logic is called from the JWT generator in `AuthServerSecurityConfig`, as `TokenExchangeRules` is.
 - Consent is remembered per user for the life of the test context. `AuthorizationCodeFlowTests` expects a consent
@@ -131,6 +133,12 @@ the sending process (`labels.py`).
   adds the token to every API call. Tools run on the request thread (Spring AI sets `immediateExecution(true)`),
   which is why the security context is available there. `ApiTokenPropagationTests` covers it end to end.
 - Never pass the user's token to the API: its `aud` is the gateway, and the API refuses it.
+- **Step-up for buying:** `ReadScopeChallengeFilter` adds `scope="petstore.read"` to every 401, so logins ask for
+  reading only. `BuyStepUpFilter` reads the JSON-RPC body and answers a `tools/call` of `buyPet` without
+  `petstore.buy` with `403 insufficient_scope` (before the transport starts its 200 event stream), then replays the
+  body. `BuyStepUpTests` covers it. `scopes_supported` lists buy before read on purpose: mcp-remote 0.15.0 replaces
+  a step-up scope that equals that list joined in order with its login scope, which would break the step-up.
+- Gateway tests that call `buyPet` need a token with both scopes.
 
 ## API as resource server (`petstore-api`)
 

@@ -41,7 +41,7 @@ sequenceDiagram
     rect rgba(128, 128, 128, 0.10)
     Note over R,G: Discovery: public metadata, no token needed
     R->>G: GET /mcp (no Authorization header)
-    G-->>R: 401 WWW-Authenticate: Bearer resource_metadata=.../.well-known/oauth-protected-resource
+    G-->>R: 401 WWW-Authenticate: Bearer resource_metadata=.../.well-known/oauth-protected-resource, 🟣 scope=petstore.read
     R->>G: GET /.well-known/oauth-protected-resource
     G-->>R: 200 🟣 resource, 🟣 authorization_servers, 🟣 scopes_supported
     R->>A: GET /.well-known/oauth-authorization-server
@@ -53,7 +53,7 @@ sequenceDiagram
     Note over R,A: Front channel: through the browser
     R->>B: opens the browser on the authorize URL
     B->>A: GET /oauth2/authorize
-    Note over B,A: ⚪ response_type=code, 🔵 client_id, 🔵 redirect_uri=http://127.0.0.1:3334/oauth/callback<br/>🟠 code_challenge, ⚪ code_challenge_method=S256, 🟠 state<br/>🟣 scope=petstore.read petstore.buy, 🟣 resource=http://localhost:8081/mcp
+    Note over B,A: ⚪ response_type=code, 🔵 client_id, 🔵 redirect_uri=http://127.0.0.1:3334/oauth/callback<br/>🟠 code_challenge, ⚪ code_challenge_method=S256, 🟠 state<br/>🟣 scope=petstore.read (from the 401), 🟣 resource=http://localhost:8081/mcp
     Note over A: checks client_id and redirect_uri against the registration,<br/>saves the request in the session
     A-->>B: 302 to /login, 🟢🔒 JSESSIONID cookie
     B->>A: POST /login: 🟡 username, 🟡🔒 password, 🟢 _csrf
@@ -96,6 +96,33 @@ sequenceDiagram
     end
 ```
 
+## Buying: step-up
+
+The login above asks for `petstore.read` only. The first time the model calls `buyPet`, the gateway asks for more:
+
+```mermaid
+sequenceDiagram
+    participant R as mcp-remote
+    participant B as Browser
+    participant A as petstore-auth
+    participant G as Gateway
+
+    R->>G: POST /mcp tools/call buyPet, Bearer 🔒 (scope petstore.read)
+    Note over G: BuyStepUpFilter reads the body: buyPet needs petstore.buy
+    G-->>R: 403 WWW-Authenticate: Bearer error=insufficient_scope, 🟣 scope=petstore.read petstore.buy, resource_metadata=...
+    R->>B: opens the browser on the authorize URL, 🟣 scope=petstore.read petstore.buy
+    B->>A: GET /oauth2/authorize
+    A-->>B: consent page: reading already granted, buying asked for (never remembered)
+    B->>A: POST consent with 🟡 petstore.buy
+    A-->>B: 302 to the callback with 🟢🔒 code
+    B->>R: GET /oauth/callback?code&state
+    R->>A: POST /oauth2/token: 🟢🔒 code, 🟠🔒 code_verifier
+    A-->>R: 200 🟢🔒 access_token (petstore.read petstore.buy), 🟢🔒 refresh_token
+    R->>G: POST /mcp tools/call buyPet again, Bearer 🔒 (new token)
+    Note over G: exchanges the new token: the API token has petstore.buy too
+```
+
+This approves *buying*, not a particular purchase: the new scope stays in the token chain until the login ends.
 Step 15, the callback to `127.0.0.1:3334`, isn't visible in mitmweb; only the 302 that causes it is.
 
 ## Which server is the token for?

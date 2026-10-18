@@ -11,6 +11,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 import java.time.Clock;
@@ -72,9 +73,14 @@ public class McpSecurityConfig {
             @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer,
             ApiTokenExchange apiTokenExchange) throws Exception {
         httpSecurity
-                // After the token and its scope have been checked. Its errors reach the exception translation
-                // filter, which sits earlier in the chain, so a refused exchange becomes a normal 401.
-                .addFilterAfter(new ApiTokenExchangeFilter(apiTokenExchange), AuthorizationFilter.class)
+                // Ahead of everything that writes a 401, so each challenge gets scope="petstore.read".
+                .addFilterBefore(new ReadScopeChallengeFilter(READ_SCOPE), BearerTokenAuthenticationFilter.class)
+                // After the token and its scope have been checked: buyPet without petstore.buy gets the step-up
+                // challenge, before anything else happens.
+                .addFilterAfter(new BuyStepUpFilter(READ_SCOPE, BUY_SCOPE), AuthorizationFilter.class)
+                // Its errors reach the exception translation filter, which sits earlier in the chain, so a refused
+                // exchange becomes a normal 401.
+                .addFilterAfter(new ApiTokenExchangeFilter(apiTokenExchange), BuyStepUpFilter.class)
                 // Every request needs a token that includes petstore.read. (The metadata endpoint is answered by
                 // its own filter before this rule is checked, so clients can read it without a token.)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().hasAuthority("SCOPE_" + READ_SCOPE))
@@ -84,8 +90,12 @@ public class McpSecurityConfig {
                                 builder -> builder
                                         .resource(properties.resource())
                                         .authorizationServer(issuer)
-                                        .scope(READ_SCOPE)
+                                        // Buy first, on purpose. On a step-up, mcp-remote 0.15.0 replaces the
+                                        // scope it asks for with its login scope if the request equals this list
+                                        // joined in order, which "petstore.read petstore.buy" would; it would then
+                                        // ask for reading only and the step-up would fail.
                                         .scope(BUY_SCOPE)
+                                        .scope(READ_SCOPE)
                                         .resourceName("Petstore MCP")
                                         // Spring's default is true, which claims tokens are tied to a client TLS
                                         // certificate (RFC 8705). Ours are plain bearer tokens.
