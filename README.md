@@ -167,6 +167,9 @@ OAuth controls who may do what. It does not stop a malicious tool description, a
 approving something they shouldn't; the safe error handling, confirmation before `buyPet` and least-privilege
 tools above cover those.
 
+[`docs/oauth-flow.md`](docs/oauth-flow.md) walks through the login request by request: where each value is defined,
+and which values are secret.
+
 ### Roadmap
 
 | Step | What | Status |
