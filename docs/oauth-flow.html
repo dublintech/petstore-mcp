@@ -210,7 +210,7 @@ const PHASES = [
   ]},
   { title: 'Discovery', sub: 'public metadata, no token needed', zone: 'back', steps: [
     { from: R, to: G, label: 'GET /mcp', chips: [['no Authorization header', 'spec']] },
-    { from: G, to: R, resp: true, label: '401', chips: [['WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource"', 'srv']] },
+    { from: G, to: R, resp: true, label: '401', chips: [['WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource"', 'srv'], ['scope="petstore.read" (log in for reading only)', 'srv']] },
     { from: R, to: G, label: 'GET /.well-known/oauth-protected-resource' },
     { from: G, to: R, resp: true, label: '200 JSON (RFC 9728)', chips: [
       ['resource = http://localhost:8081/mcp', 'srv'], ['authorization_servers = [http://localhost:9000]', 'srv'],
@@ -227,7 +227,7 @@ const PHASES = [
     { from: B, to: A, label: 'GET /oauth2/authorize', chips: [
       ['response_type = code', 'spec'], ['client_id = petstore-mcp-client', 'cfg'],
       ['redirect_uri = http://127.0.0.1:3334/oauth/callback', 'cfg'], ['code_challenge', 'gen'],
-      ['code_challenge_method = S256', 'spec'], ['state', 'gen'], ['scope = petstore.read petstore.buy', 'srv'],
+      ['code_challenge_method = S256', 'spec'], ['state', 'gen'], ['scope = petstore.read (from the 401; buying is asked for at the first buyPet)', 'srv'],
       ['resource = http://localhost:8081/mcp', 'srv']],
       note: 'petstore-auth checks client_id and redirect_uri against its registration before the login page (loopback: any port). It saves the request in the session.' },
     { from: A, to: B, resp: true, label: '302 → /login', chips: [['JSESSIONID cookie', 'run', 1]] },

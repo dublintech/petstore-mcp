@@ -4,7 +4,7 @@
 # back-door port instead (1 in front):
 #
 #   :8080 -> petstore-api   :18080      (gateway -> API)
-#   :9000 -> petstore-auth  :19000      (browser, mcp-remote and gateway -> authorization server)
+#   :9000 -> petstore-auth  :19000      (browser, mcp-remote, gateway and API -> authorization server)
 #   :8081 -> petstore-mcp   :18081      (mcp-remote -> gateway)
 #
 # Nothing else changes: the issuer, the gateway's URLs and the Claude Desktop config still say 8080/9000/8081, so
@@ -20,6 +20,7 @@
 # The recording contains passwords, codes and tokens. It is saved under build/trace/, which git ignores.
 #
 # Usage, from the repo root:  .\scripts\trace\trace.ps1     (Ctrl+C to stop; then restart the apps normally)
+# Full steps, from building the jars to watching the traffic: README.md, "Watching the traffic".
 
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path "$PSScriptRoot\..\.."
@@ -43,7 +44,10 @@ Start the apps on their back-door ports, each in its own window, from $repo :
   java -Xmx256m -jar petstore-auth\build\libs\petstore-auth-0.0.1-SNAPSHOT.jar --server.port=19000
   java -Xmx256m -jar petstore-mcp\build\libs\petstore-mcp-0.0.1-SNAPSHOT.jar --server.port=18081
 
-Then quit and reopen Claude Desktop. The mitmweb UI opens in your browser (http://127.0.0.1:8085).
+Then fully quit and reopen Claude Desktop.
+
+Watch the traffic at http://127.0.0.1:8085/ (opened for you). If it asks for a token, use the full
+http://127.0.0.1:8085/?token=... link printed below. Step-by-step guide: README.md, "Watching the traffic".
 Recording to $flows
 "@ -ForegroundColor Cyan
 

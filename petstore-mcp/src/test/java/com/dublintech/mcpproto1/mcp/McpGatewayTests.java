@@ -75,7 +75,8 @@ class McpGatewayTests {
 
     @BeforeEach
     void connect() {
-        String token = TestAuthorizationServer.validToken();
+        // Both scopes, so buyPet passes the step-up check (BuyStepUpTests covers what happens without petstore.buy).
+        String token = TestAuthorizationServer.token(claims -> claims.claim("scope", List.of("petstore.read", "petstore.buy")));
         client = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port)
                         .httpRequestCustomizer((request, method, uri, body, context) ->
                                 request.header("Authorization", "Bearer " + token))

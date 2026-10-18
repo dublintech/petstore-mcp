@@ -50,7 +50,9 @@ class TokenValidationTests {
         assertThat(response.statusCode()).isEqualTo(401);
         assertThat(wwwAuthenticate(response))
                 .startsWith("Bearer")
-                .contains("resource_metadata=\"http://localhost:" + port + "/.well-known/oauth-protected-resource");
+                .contains("resource_metadata=\"http://localhost:" + port + "/.well-known/oauth-protected-resource")
+                // Log in for reading only; buying is asked for later (BuyStepUpTests).
+                .contains("scope=\"petstore.read\"");
     }
 
     @Test
@@ -65,7 +67,7 @@ class TokenValidationTests {
             assertThat((List<String>) JsonPath.read(json, "$.authorization_servers"))
                     .containsExactly(TestAuthorizationServer.issuer());
             assertThat((List<String>) JsonPath.read(json, "$.scopes_supported"))
-                    .containsExactly("petstore.read", "petstore.buy");
+                    .containsExactly("petstore.buy", "petstore.read");
             assertThat((Boolean) JsonPath.read(json, "$.tls_client_certificate_bound_access_tokens")).isFalse();
         }
     }
