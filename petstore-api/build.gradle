@@ -1,3 +1,8 @@
 description = 'Petstore REST API'
 
-// No extra dependencies: the API knows nothing about MCP.
+// The API knows nothing about MCP.
+dependencies {
+    // Checks the bearer token on every request: issued by petstore-auth, meant for the API, with the right scope
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+}

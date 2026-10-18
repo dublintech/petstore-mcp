@@ -9,7 +9,11 @@ import org.springframework.core.Ordered;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+
+import java.time.Clock;
 
 /**
  * The MCP endpoint's protections: the Origin check, then OAuth.
@@ -55,10 +59,22 @@ public class McpSecurityConfig {
         return registration;
     }
 
+    /** The gateway's way to an API token: see {@link ApiTokenExchange}. */
+    @Bean
+    ApiTokenExchange apiTokenExchange(ClientRegistrationRepository registrations,
+            @Value("${petstore.api.resource}") String apiResource) {
+        return new ApiTokenExchange(registrations.findByRegistrationId("petstore-api"),
+                registrations.findByRegistrationId("petstore-gateway"), apiResource, Clock.systemUTC());
+    }
+
     @Bean
     SecurityFilterChain mcpSecurityFilterChain(HttpSecurity httpSecurity, McpSecurityProperties properties,
-            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer) throws Exception {
+            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer,
+            ApiTokenExchange apiTokenExchange) throws Exception {
         httpSecurity
+                // After the token and its scope have been checked. Its errors reach the exception translation
+                // filter, which sits earlier in the chain, so a refused exchange becomes a normal 401.
+                .addFilterAfter(new ApiTokenExchangeFilter(apiTokenExchange), AuthorizationFilter.class)
                 // Every request needs a token that includes petstore.read. (The metadata endpoint is answered by
                 // its own filter before this rule is checked, so clients can read it without a token.)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().hasAuthority("SCOPE_" + READ_SCOPE))

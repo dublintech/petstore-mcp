@@ -15,6 +15,8 @@ public class PetstoreApiException extends RuntimeException {
 
     public enum Kind {
         BAD_REQUEST,
+        /** 401 or 403: the user's token doesn't allow this, most often a purchase without petstore.buy. */
+        NOT_ALLOWED,
         NOT_FOUND,
         UNAVAILABLE,
         SERVER_ERROR,
@@ -112,6 +114,9 @@ public class PetstoreApiException extends RuntimeException {
     private static Kind kindFor(int status) {
         if (status == 404) {
             return Kind.NOT_FOUND;
+        }
+        if (status == 401 || status == 403) {
+            return Kind.NOT_ALLOWED;
         }
         if (status == 503) {
             return Kind.UNAVAILABLE;

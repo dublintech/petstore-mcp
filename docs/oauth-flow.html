@@ -253,11 +253,22 @@ const PHASES = [
     { from: G, to: G, label: 'checks the JWT locally', chips: [
       ['signature', 'spec'], ['exp', 'spec'], ['iss = http://localhost:9000', 'srv'],
       ['aud = http://localhost:8081/mcp', 'srv'], ['scope petstore.read', 'srv']] },
+    { from: G, to: A, label: 'POST /oauth2/token (client_credentials, first time only)', chips: [
+      ['grant_type = client_credentials', 'spec'], ['gateway client secret (Basic auth)', 'srv', 1]] },
+    { from: A, to: G, resp: true, label: '200', chips: [['the gateway\'s own token (sub = aud = petstore-gateway)', 'run', 1]] },
+    { from: G, to: A, label: 'POST /oauth2/token (token exchange)', chips: [
+      ['grant_type = token-exchange', 'spec'], ['subject_token = the user\'s token', 'run', 1],
+      ['actor_token = the gateway\'s token', 'run', 1], ['resource = http://localhost:8080', 'srv']],
+      note: 'petstore-auth checks the gateway\'s secret, that the user\'s token was meant for the gateway, and grants no more scope than the user approved.' },
+    { from: A, to: G, resp: true, label: '200 API token', chips: [
+      ['sub = user1', 'run'], ['aud = http://localhost:8080', 'srv'], ['act = petstore-gateway', 'run'], ['API token (5 min)', 'run', 1]],
+      note: 'Cached per user token until it expires.' },
     { from: G, to: R, resp: true, label: '200 capabilities', chips: [['Mcp-Session-Id', 'run']] }
   ]},
   { title: 'Using the tools', sub: 'every request carries the token and the session ID', zone: 'back', steps: [
     { from: R, to: G, label: 'POST /mcp tools/call findPetsByStatus', chips: [['Bearer access_token', 'run', 1], ['Mcp-Session-Id', 'run']] },
-    { from: G, to: P, label: 'GET /v2/pet/findByStatus?status=available', chips: [['no token yet (roadmap step 5)', 'spec']] },
+    { from: G, to: P, label: 'GET /v2/pet/findByStatus?status=available', chips: [['Bearer API token', 'run', 1]],
+      note: 'The API checks aud = http://localhost:8080 and the scope: petstore.read here, petstore.buy for buying.' },
     { from: R, to: A, label: 'every ~5 min: POST /oauth2/token', chips: [
       ['grant_type = refresh_token', 'spec'], ['refresh_token', 'run', 1], ['client_id', 'cfg']] },
     { from: A, to: R, resp: true, label: '200', chips: [['new access_token', 'run', 1], ['new refresh_token (old one dies)', 'run', 1]] }
@@ -275,7 +286,9 @@ const MATRIX = [
   ['authorization code', 'o', ['s', 's', 's', ''], 'Useless without the verifier; one use; 5 minutes.'],
   ['access token', 's', ['s', '', 's', 's'], 'Short-lived (5 min); aud limits it to the gateway.'],
   ['refresh token', 's', ['s', '', 's', ''], 'Never sent to the gateway; rotates on every use.'],
-  ['signing key', 's', ['', '', 's', 'p'], 'The gateway holds only the public half (JWKS).']
+  ['API token', 's', ['', '', 's', 's'], 'Lasts 5 minutes; aud is the API, which also holds it.'],
+  ['gateway client secret', 's', ['', '', 'p', 's'], 'petstore-auth keeps only a BCrypt hash.'],
+  ['signing key', 's', ['', '', 's', 'p'], 'The gateway and the API hold only the public half (JWKS).']
 ];
 
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }

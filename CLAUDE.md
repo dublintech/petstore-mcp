@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 The Swagger Petstore as a Spring Boot REST API, plus a separate MCP gateway that exposes it to AI clients as tools,
-resources and prompts, and an OAuth 2.1 authorization server whose tokens the gateway requires (security is added
-step by step; see the roadmap in `README.md`). It's a learning project about MCP architecture; see `README.md` for
+resources and prompts, and an OAuth 2.1 authorization server whose tokens the gateway and the API require (security
+is added step by step; see the roadmap in `README.md`). It's a learning project about MCP architecture; see `README.md` for
 the user-facing overview. Remote: https://github.com/dublintech/petstore-mcp
 
 - Gradle 9.8.1 multi-module build (Groovy DSL); shared config in the root `build.gradle` `subprojects {}` block
@@ -122,8 +122,23 @@ the sending process (`labels.py`).
   `/.well-known/oauth-protected-resource` (RFC 9728) names the authorization server. The Origin filter runs before
   Spring Security.
 - The JWT decoder is created on the first token, not at startup, and caches the JWKS for 5 minutes.
-- Tests sign their own tokens with `TestAuthorizationServer` (a JDK `HttpServer` serving discovery and JWKS) and
-  register it with `@DynamicPropertySource`; `TokenValidationTests` holds the tokens that must be refused.
+- Tests sign their own tokens with `TestAuthorizationServer` (a JDK `HttpServer` serving discovery, JWKS and a
+  token endpoint) and register it with `@DynamicPropertySource`; `TokenValidationTests` holds the tokens that must be
+  refused.
+- **Calling the API:** `ApiTokenExchange` swaps the user's token for an API token (token exchange, with the
+  gateway's client_credentials token as actor) and caches it per user token. `ApiTokenExchangeFilter` does it before
+  the MCP response starts, so a refused exchange (`invalid_grant`) is a `401`; `PetstoreApiConfig`'s interceptor
+  adds the token to every API call. Tools run on the request thread (Spring AI sets `immediateExecution(true)`),
+  which is why the security context is available there. `ApiTokenPropagationTests` covers it end to end.
+- Never pass the user's token to the API: its `aud` is the gateway, and the API refuses it.
+
+## API as resource server (`petstore-api`)
+
+- `ApiSecurityConfig`: `aud` must be `http://localhost:8080`. Scopes: `petstore.read` for `GET`, `petstore.buy`
+  for the three calls `buyPet` makes (place order, form update of a pet, delete order), `petstore.admin` (offered
+  to no client) for everything else. `GET /v2/openapi.json` is public.
+- Controller tests `@Import(SignedInAsGateway.class)`, which gives every MockMvc request a token with all scopes.
+  `ApiSecurityTests` sends real signed tokens from its own stand-in issuer.
 
 ## Working agreements
 
