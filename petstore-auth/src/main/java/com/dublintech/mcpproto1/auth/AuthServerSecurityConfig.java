@@ -89,7 +89,7 @@ public class AuthServerSecurityConfig {
     @Order(1)
     SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity httpSecurity,
             JWKSource<SecurityContext> jwkSource, OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer,
-            RegisteredClientRepository registeredClients) throws Exception {
+            TokenExchangeRules tokenExchangeRules, RegisteredClientRepository registeredClients) throws Exception {
         // oauth2AuthorizationServer adds all the oauth2 filters (auth endpoint, JWKS filter, metadata, introspection
         // revocation, client authentication filter
         httpSecurity.oauth2AuthorizationServer(oAuth2AuthorizationServerConfigurer -> {
@@ -130,7 +130,7 @@ public class AuthServerSecurityConfig {
                     // Refresh tokens for public clients (see PublicClientRefreshTokens): our own token generator,
                     // and a way to recognise a public client on a refresh request.
                     oAuth2AuthorizationServerConfigurer
-                            .tokenGenerator(tokenGenerator(jwkSource, tokenCustomizer))
+                            .tokenGenerator(tokenGenerator(jwkSource, tokenCustomizer, tokenExchangeRules))
                             .clientAuthentication(clientAuthentication -> clientAuthentication
                                     .authenticationConverter(new PublicClientRefreshTokens.Converter())
                                     .authenticationProvider(new PublicClientRefreshTokens.Provider(registeredClients)))
@@ -166,12 +166,16 @@ public class AuthServerSecurityConfig {
     /**
      * The same three generators Spring uses by default (JWT access tokens, opaque access tokens, refresh tokens),
      * except that the refresh token one also serves public clients. Supplying a generator means Spring no longer
-     * applies the token customizer bean by itself, so it is set on the JWT generator here.
+     * applies the token customizer bean by itself, so it is set on the JWT generator here, after the token exchange
+     * rules. (Those aren't a second customizer bean: Spring expects at most one.)
      */
     private static OAuth2TokenGenerator<?> tokenGenerator(JWKSource<SecurityContext> jwkSource,
-            OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer) {
+            OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer, TokenExchangeRules tokenExchangeRules) {
         JwtGenerator jwtGenerator = new JwtGenerator(new NimbusJwtEncoder(jwkSource));
-        jwtGenerator.setJwtCustomizer(tokenCustomizer);
+        jwtGenerator.setJwtCustomizer(context -> {
+            tokenExchangeRules.apply(context);
+            tokenCustomizer.customize(context);
+        });
         return new DelegatingOAuth2TokenGenerator(jwtGenerator, new OAuth2AccessTokenGenerator(),
                 new PublicClientRefreshTokens.Generator());
     }

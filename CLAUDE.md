@@ -102,6 +102,15 @@ the sending process (`labels.py`).
   refuses resources not listed in `petstore.auth.resources` (`invalid_target`).
 - Spring issues no refresh tokens to public clients; `PublicClientRefreshTokens` adds them (a generator plus client
   authentication for refresh requests). They rotate (`reuse-refresh-tokens=false`).
+- A second, **confidential** client, `petstore-gateway` (dev secret `gateway-dev-secret-not-for-production`, stored as
+  a BCrypt hash), has `client_credentials` and token exchange, so the gateway can swap a user's token for one with
+  `aud` = the API (`http://localhost:8080`). `TokenExchangeRules` adds what Spring doesn't check: an actor token
+  that is the client's own, a subject token meant for that client (`petstore.auth.token-exchange.clients`), no more
+  scope than the user approved, and an `act` claim. `TokenExchangeTests` covers it.
+- Only one `OAuth2TokenCustomizer<JwtEncodingContext>` bean may exist (`ResourceAudienceConfig`); further claim
+  logic is called from the JWT generator in `AuthServerSecurityConfig`, as `TokenExchangeRules` is.
+- Consent is remembered per user for the life of the test context. `AuthorizationCodeFlowTests` expects a consent
+  page for user1–user3, so other test classes that log in must use `@DirtiesContext(classMode = AFTER_CLASS)`.
 - The OAuth endpoints are filters, not controllers. To list each chain's filters, run with
   `--logging.level.org.springframework.security.web.DefaultSecurityFilterChain=DEBUG`.
 - In MockMvc tests, pass already-encoded URLs as `URI.create(...)`; `get(String)` encodes them a second time.
