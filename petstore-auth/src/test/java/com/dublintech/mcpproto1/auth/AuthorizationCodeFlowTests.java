@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -232,6 +233,51 @@ class AuthorizationCodeFlowTests {
                 .andExpect(status().isBadRequest());
     }
 
+    /**
+     * For a loopback redirect URI the port is not checked, only the scheme, host and path.
+     *
+     * <p>OAuth 2.1 (section 8.4.2) requires this because native apps usually listen on whatever free port the
+     * operating system hands them, so the port can't be known when the client is registered. Spring therefore
+     * swaps the requested port into the registered URI before comparing. Any other host, {@code localhost}
+     * included, needs an exact string match.
+     *
+     * <p>The consequence: any program on this machine that listens on {@code 127.0.0.1} with the registered path can
+     * use this client ID, get a code and, with its own PKCE verifier, a working token, as long as the user logs in
+     * and approves the consent page. The token is identical to mcp-remote's ({@code iss}, {@code sub}, {@code aud},
+     * {@code scope}), so the gateway can't tell them apart. On loopback the redirect URI only proves "same machine";
+     * PKCE, the consent page and a separate client ID per app are what tell clients apart.
+     */
+    @Test
+    void loopbackRedirectAcceptsAnyPortButNotAnotherPathOrHost() throws Exception {
+        String registered = "http%3A%2F%2F127.0.0.1%3A3334%2Foauth%2Fcallback";
+
+        // Another port: accepted, and the code is delivered to that port.
+        Pkce pkce = Pkce.generate();
+        String otherPort = "http://127.0.0.1:51234/oauth/callback";
+        String redirect = approveAndRedirect("user3",
+                authorizeUrl(pkce, "s1").replace(registered, "http%3A%2F%2F127.0.0.1%3A51234%2Foauth%2Fcallback"));
+        assertThat(redirect).startsWith(otherPort + "?code=");
+
+        // ...and redeeming it gives a normal token. The token request must repeat the same redirect URI.
+        String code = UriComponentsBuilder.fromUriString(redirect).build().getQueryParams().getFirst("code");
+        mvc.perform(post("/oauth2/token")
+                        .param("grant_type", "authorization_code")
+                        .param("code", code)
+                        .param("redirect_uri", otherPort)
+                        .param("client_id", CLIENT_ID)
+                        .param("code_verifier", pkce.verifier()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").exists());
+
+        // Another path, or the name localhost instead of the IP: refused with an error page, no redirect.
+        for (String refused : List.of("http%3A%2F%2F127.0.0.1%3A3334%2Fcallback",
+                "http%3A%2F%2Flocalhost%3A3334%2Foauth%2Fcallback")) {
+            mvc.perform(get(URI.create(authorizeUrl(Pkce.generate(), "s1").replace(registered, refused)))
+                            .with(user("user1")))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
     @Test
     void authorizeWithoutPkceIsRejected() throws Exception {
         String url = "/oauth2/authorize?response_type=code&client_id=" + CLIENT_ID
@@ -252,8 +298,20 @@ class AuthorizationCodeFlowTests {
                 + "&resource=http%3A%2F%2Flocalhost%3A8081%2Fmcp";
     }
 
-    /** Logs in as {@code username}, approves the consent page and returns the code. */
+    /**
+     * Logs in as {@code username}, approves the consent page and returns the code.
+     *
+     * <p>The server remembers each user's consent for the whole test class (the tests share one application
+     * context), and a user who has already approved these scopes skips the consent page. So each test that approves
+     * uses its own user: user1 for the full flow, user2 and user3 for the others.
+     */
     private String approve(String username, String authorizeUrl) throws Exception {
+        return UriComponentsBuilder.fromUriString(approveAndRedirect(username, authorizeUrl)).build()
+                .getQueryParams().getFirst("code");
+    }
+
+    /** Logs in as {@code username}, approves the consent page and returns where the browser is sent next. */
+    private String approveAndRedirect(String username, String authorizeUrl) throws Exception {
         MvcResult consentPage = mvc.perform(get(URI.create(authorizeUrl)).with(user(username)))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -263,8 +321,7 @@ class AuthorizationCodeFlowTests {
                         .param("scope", "petstore.read"))
                 .andExpect(status().isFound())
                 .andReturn();
-        return UriComponentsBuilder.fromUriString(approved.getResponse().getRedirectedUrl()).build()
-                .getQueryParams().getFirst("code");
+        return approved.getResponse().getRedirectedUrl();
     }
 
     private static org.springframework.test.web.servlet.RequestBuilder tokenRequest(String code, String verifier) {
