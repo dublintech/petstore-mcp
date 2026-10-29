@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -34,13 +35,12 @@ public class StoreController {
     }
 
     /**
-     * Also records who bought: the user ({@code sub}) and the program acting for them ({@code act}), both from the
-     * exchanged token. The log shows what authority was used, not whether the user meant it; that needs step-up
-     * consent (roadmap step 8).
+     * The order belongs to the user in the exchanged token ({@code sub}), never to anyone named in the body. Also
+     * logs who bought: the user and the program acting for them ({@code act}).
      */
     @PostMapping(path = "/order", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Order placeOrder(@RequestBody Order order, @AuthenticationPrincipal Jwt token) {
-        Order placed = storeService.placeOrder(order);
+        Order placed = storeService.placeOrder(order, token.getSubject());
         Object actor = token.getClaimAsMap("act") == null ? null : token.getClaimAsMap("act").get("sub");
         log.info("Order {} for pet {} placed by user={} via actor={}", placed.id(), placed.petId(),
                 forLog(token.getSubject()), forLog(actor));
@@ -52,14 +52,21 @@ public class StoreController {
         return value == null ? null : value.toString().replaceAll("[\\r\\n\\t]", " ");
     }
 
+    /** The caller's own orders. Not in the original Petstore API: without it a user can't see what they bought. */
+    @GetMapping("/orders")
+    public List<Order> getOrders(@AuthenticationPrincipal Jwt token) {
+        return storeService.getOrders(token.getSubject());
+    }
+
+    /** Only the caller's own orders; anyone else's is a 404, as if it didn't exist. */
     @GetMapping("/order/{orderId}")
-    public Order getOrderById(@PathVariable long orderId) {
-        return storeService.getOrderById(orderId);
+    public Order getOrderById(@PathVariable long orderId, @AuthenticationPrincipal Jwt token) {
+        return storeService.getOrderById(orderId, token.getSubject());
     }
 
     @DeleteMapping("/order/{orderId}")
-    public ApiResponse deleteOrder(@PathVariable long orderId) {
-        storeService.deleteOrder(orderId);
+    public ApiResponse deleteOrder(@PathVariable long orderId, @AuthenticationPrincipal Jwt token) {
+        storeService.deleteOrder(orderId, token.getSubject());
         return ApiResponse.ok(String.valueOf(orderId));
     }
 }

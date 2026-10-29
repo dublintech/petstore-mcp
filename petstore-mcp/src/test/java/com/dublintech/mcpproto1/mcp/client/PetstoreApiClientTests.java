@@ -87,6 +87,18 @@ class PetstoreApiClientTests {
     }
 
     @Test
+    void getsMyOrders() {
+        server.expect(requestTo("http://petstore/v2/store/orders")).andExpect(method(GET))
+                .andRespond(withSuccess("[{\"id\":1,\"petId\":4,\"quantity\":1,\"status\":\"delivered\",\"complete\":true}]",
+                        MediaType.APPLICATION_JSON));
+
+        List<Order> orders = client.getMyOrders();
+
+        assertThat(orders).extracting(Order::id).containsExactly(1L);
+        server.verify();
+    }
+
+    @Test
     void deletesOrder() {
         server.expect(requestTo("http://petstore/v2/store/order/11")).andExpect(method(DELETE))
                 .andRespond(withSuccess());

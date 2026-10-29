@@ -32,6 +32,7 @@ public class PetstoreApiClient {
     private static final Logger log = LoggerFactory.getLogger(PetstoreApiClient.class);
 
     private static final ParameterizedTypeReference<List<Pet>> PET_LIST = new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<List<Order>> ORDER_LIST = new ParameterizedTypeReference<>() {};
     private static final ParameterizedTypeReference<Map<String, Integer>> INVENTORY =
             new ParameterizedTypeReference<>() {};
 
@@ -80,6 +81,11 @@ public class PetstoreApiClient {
         return call(() -> restClient.post().uri("/store/order")
                 .contentType(MediaType.APPLICATION_JSON).body(new NewOrder(petId, quantity))
                 .retrieve().body(Order.class));
+    }
+
+    /** The orders of the user whose token the call carries; the API decides whose they are. */
+    public List<Order> getMyOrders() {
+        return call(() -> restClient.get().uri("/store/orders").retrieve().body(ORDER_LIST));
     }
 
     public Order getOrder(long orderId) {

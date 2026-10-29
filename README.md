@@ -59,7 +59,7 @@ API's data is reached through an MCP client, or in the API's own tests.
 |---|---|
 | `searchPets` | Facade: filters by status, tag and category in one call, using several API calls |
 | `buyPet` | Facade: checks availability, places the order and marks the pet pending; cancels the order if the last step fails. **The only write tool.** |
-| `getPetById`, `findPetsByStatus`, `findPetsByTags`, `getInventory`, `getOrderById`, `getUserByName` | Read-only, one-to-one with API operations |
+| `getPetById`, `findPetsByStatus`, `findPetsByTags`, `getInventory`, `listMyOrders`, `getOrderById`, `getUserByName` | Read-only, one-to-one with API operations. The two order tools see only the signed-in user's orders. |
 
 **Resources** (the user or app attaches them as context):
 
@@ -209,7 +209,8 @@ approving something they shouldn't; the safe error handling, confirmation before
 tools above cover those.
 
 [`docs/oauth-flow.md`](docs/oauth-flow.md) walks through the login request by request: where each value is defined,
-and which values are secret.
+and which values are secret. [`docs/tokens.md`](docs/tokens.md) explains the four tokens (subject, refresh, actor and
+issued): real payloads, when each is created, who holds it and why it's needed.
 
 ### Roadmap
 
@@ -222,7 +223,7 @@ and which values are secret.
 | 4 | Claude Desktop logs in through `mcp-remote` (Authorization Code + PKCE, rotating refresh tokens) | Done |
 | 5 | Gateway gets its own token for the API (no token passthrough) | Done |
 | 6 | Token exchange so the API knows which user is behind a gateway call | Done |
-| 7 | Per-user data: users see only their own orders | Planned |
+| 7 | Per-user data: users see only their own orders | Done |
 | 8 | Step-up: logins ask for `petstore.read` only; the first `buyPet` triggers a `petstore.buy` consent | Done |
 
 The gateway accepts a token only if it is signed by `petstore-auth`, unexpired, issued by `http://localhost:9000`
@@ -246,6 +247,13 @@ page asks for buying, and the call is re-sent with the new token. `petstore-auth
 [`ApiTokenPropagationTests`](petstore-mcp/src/test/java/com/dublintech/mcpproto1/mcp/security/ApiTokenPropagationTests.java)
 cover it.
 
+Each order belongs to the user who placed it: the API stores the exchanged token's `sub` with the order, never a
+value from the request body. `GET /v2/store/orders` lists the caller's own orders, and reading or cancelling anyone
+else's order gets the same `404 ORDER_NOT_FOUND` as an order that doesn't exist, so order IDs reveal nothing about
+other users. Scopes say *what kind* of action is allowed; ownership says *on which orders*. The check is in the API,
+so it holds whatever the gateway or the model does.
+[`OrderOwnershipTests`](petstore-api/src/test/java/com/dublintech/mcpproto1/store/OrderOwnershipTests.java) covers it.
+
 ## Known limitations
 
 - All three apps are meant for localhost only: plain http, a development client secret, and in-memory state.
@@ -257,3 +265,5 @@ cover it.
   check. A real fix needs a conditional update in the API.
 - Free text in successful results (such as pet names) still reaches the model, as structured data.
 - Spring AI repeats each tool error message twice in the result text.
+- An order's owner is the token's `sub`, which is the username. A real system would use an ID that never changes,
+  so a renamed or reused username can't take over someone's orders.
