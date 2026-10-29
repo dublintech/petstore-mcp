@@ -3,6 +3,7 @@ package com.dublintech.mcpproto1.security;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import java.util.Map;
@@ -22,8 +23,12 @@ public class SignedInAsGateway {
     MockMvcBuilderCustomizer everyRequestHasAToken() {
         return builder -> builder.defaultRequest(get("/").with(jwt()
                 .jwt(token -> token.subject("user1").claim("act", Map.of("sub", "petstore-gateway")))
-                .authorities(new SimpleGrantedAuthority(ApiSecurityConfig.READ),
-                        new SimpleGrantedAuthority(ApiSecurityConfig.BUY),
-                        new SimpleGrantedAuthority(ApiSecurityConfig.ADMIN))));
+                .authorities(allScopes())));
+    }
+
+    /** Every scope the API checks, as Spring's authorities. */
+    public static GrantedAuthority[] allScopes() {
+        return new GrantedAuthority[] {new SimpleGrantedAuthority(ApiSecurityConfig.READ),
+                new SimpleGrantedAuthority(ApiSecurityConfig.BUY), new SimpleGrantedAuthority(ApiSecurityConfig.ADMIN)};
     }
 }

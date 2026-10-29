@@ -95,8 +95,8 @@ class McpGatewayTests {
         List<Tool> tools = client.listTools().tools();
 
         assertThat(tools).extracting(Tool::name).containsExactlyInAnyOrder(
-                "getPetById", "findPetsByStatus", "findPetsByTags", "getInventory", "getOrderById", "getUserByName",
-                "searchPets", "buyPet");
+                "getPetById", "findPetsByStatus", "findPetsByTags", "getInventory", "listMyOrders", "getOrderById",
+                "getUserByName", "searchPets", "buyPet");
         assertThat(tools).filteredOn(tool -> !tool.name().equals("buyPet"))
                 .allSatisfy(tool -> assertThat(tool.annotations().readOnlyHint()).isTrue());
     }
@@ -109,6 +109,35 @@ class McpGatewayTests {
 
         assertThat(result.isError()).isTrue();
         assertThat(text(result)).startsWith("No such pet. Use searchPets to find pets. (ref ");
+    }
+
+    // --- orders ---
+
+    @Test
+    void listMyOrdersReturnsWhatTheApiSaysAreTheUsersOrders() {
+        when(api.getMyOrders()).thenReturn(List.of(new Order(1L, 4L, 1, null, "delivered", true)));
+
+        String result = text(call("listMyOrders", Map.of()));
+
+        assertThat(result).contains("\"count\":1").contains("\"petId\":4").doesNotContain("No orders yet");
+    }
+
+    @Test
+    void listMyOrdersExplainsAnEmptyList() {
+        when(api.getMyOrders()).thenReturn(List.of());
+
+        assertThat(text(call("listMyOrders", Map.of()))).contains("\"count\":0").contains("No orders yet");
+    }
+
+    /** The API answers 404 for someone else's order; the model is pointed at the user's own list. */
+    @Test
+    void someoneElsesOrderIsReportedAsNotFound() {
+        when(api.getOrder(3)).thenThrow(new PetstoreApiException(404, "ORDER_NOT_FOUND", null, null, null));
+
+        CallToolResult result = call("getOrderById", Map.of("orderId", 3));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(text(result)).startsWith("No such order among the user's orders. Use listMyOrders to see them. (ref ");
     }
 
     // --- searchPets ---

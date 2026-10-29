@@ -4,6 +4,7 @@ import com.dublintech.mcpproto1.pet.Pet;
 import com.dublintech.mcpproto1.pet.PetRepository;
 import com.dublintech.mcpproto1.store.Order;
 import com.dublintech.mcpproto1.store.OrderRepository;
+import com.dublintech.mcpproto1.store.OrderStatus;
 import com.dublintech.mcpproto1.user.User;
 import com.dublintech.mcpproto1.user.UserRepository;
 import org.slf4j.Logger;
@@ -18,6 +19,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -44,11 +46,11 @@ public class SampleDataLoader implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         List<Pet> pets = read("sample-data/pets.json", new TypeReference<>() {});
-        List<Order> orders = read("sample-data/orders.json", new TypeReference<>() {});
+        List<SampleOrder> orders = read("sample-data/orders.json", new TypeReference<>() {});
         List<User> users = read("sample-data/users.json", new TypeReference<>() {});
 
         pets.forEach(petRepository::save);
-        orders.forEach(order -> orderRepository.save(order.withDefaults()));
+        orders.forEach(order -> orderRepository.save(order.toOrder().withDefaults(), order.owner()));
         users.forEach(userRepository::save);
 
         log.info("Loaded sample data: {} pets, {} orders, {} users", pets.size(), orders.size(), users.size());
@@ -59,6 +61,14 @@ public class SampleDataLoader implements ApplicationRunner {
             return jsonMapper.readValue(in, type);
         } catch (IOException ex) {
             throw new UncheckedIOException("Could not load sample data from " + path, ex);
+        }
+    }
+
+    /** An order as written in the sample file, with its owner, which {@link Order} itself doesn't carry. */
+    private record SampleOrder(String owner, Long id, Long petId, Integer quantity, OffsetDateTime shipDate,
+                               OrderStatus status, Boolean complete) {
+        Order toOrder() {
+            return new Order(id, petId, quantity, shipDate, status, complete);
         }
     }
 }

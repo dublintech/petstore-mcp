@@ -31,7 +31,7 @@ public final class GatewayErrors {
         String code = ex.getErrorCode() == null ? "" : ex.getErrorCode();
         return switch (code) {
             case "PET_NOT_FOUND" -> "No such pet. Use searchPets to find pets.";
-            case "ORDER_NOT_FOUND" -> "No such order.";
+            case "ORDER_NOT_FOUND" -> "No such order among the user's orders. Use listMyOrders to see them.";
             case "USER_NOT_FOUND" -> "No such user.";
             case "INVALID_STATUS" -> "Invalid pet status. Use one of: available, pending, sold.";
             case "INVALID_ID" -> "Invalid ID. IDs are whole numbers of 1 or more.";

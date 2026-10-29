@@ -105,21 +105,28 @@
     },
     "/store/order": {
       "post": {
-        "tags": ["store"], "summary": "Place an order for a pet", "description": "", "operationId": "placeOrder",
+        "tags": ["store"], "summary": "Place an order for a pet", "description": "The order belongs to the user in the access token (sub).", "operationId": "placeOrder",
         "consumes": ["application/json"], "produces": ["application/json", "application/xml"],
         "parameters": [{ "in": "body", "name": "body", "description": "order placed for purchasing the pet", "required": true, "schema": { "$ref": "#/definitions/Order" } }],
         "responses": { "200": { "description": "successful operation", "schema": { "$ref": "#/definitions/Order" } }, "400": { "description": "Invalid Order" } }
       }
     },
+    "/store/orders": {
+      "get": {
+        "tags": ["store"], "summary": "List your orders", "description": "The orders that belong to the user in the access token, oldest first. Not in the original Petstore API.", "operationId": "getOrders",
+        "produces": ["application/json"], "parameters": [],
+        "responses": { "200": { "description": "successful operation", "schema": { "type": "array", "items": { "$ref": "#/definitions/Order" } } } }
+      }
+    },
     "/store/order/{orderId}": {
       "get": {
-        "tags": ["store"], "summary": "Find purchase order by ID", "description": "For valid response try integer IDs with value >= 1 and <= 10. Other values will generated exceptions", "operationId": "getOrderById",
+        "tags": ["store"], "summary": "Find purchase order by ID", "description": "Only orders that belong to the user in the access token. Anyone else's order is reported as not found.", "operationId": "getOrderById",
         "produces": ["application/json", "application/xml"],
-        "parameters": [{ "name": "orderId", "in": "path", "description": "ID of pet that needs to be fetched", "required": true, "type": "integer", "maximum": 10, "minimum": 1, "format": "int64" }],
+        "parameters": [{ "name": "orderId", "in": "path", "description": "ID of the order that needs to be fetched", "required": true, "type": "integer", "minimum": 1, "format": "int64" }],
         "responses": { "200": { "description": "successful operation", "schema": { "$ref": "#/definitions/Order" } }, "400": { "description": "Invalid ID supplied" }, "404": { "description": "Order not found" } }
       },
       "delete": {
-        "tags": ["store"], "summary": "Delete purchase order by ID", "description": "For valid response try integer IDs with positive integer value. Negative or non-integer values will generate API errors", "operationId": "deleteOrder",
+        "tags": ["store"], "summary": "Delete purchase order by ID", "description": "Only orders that belong to the user in the access token. Anyone else's order is reported as not found.", "operationId": "deleteOrder",
         "produces": ["application/json", "application/xml"],
         "parameters": [{ "name": "orderId", "in": "path", "description": "ID of the order that needs to be deleted", "required": true, "type": "integer", "minimum": 1, "format": "int64" }],
         "responses": { "400": { "description": "Invalid ID supplied" }, "404": { "description": "Order not found" } }

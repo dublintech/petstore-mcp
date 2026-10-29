@@ -145,8 +145,14 @@ the sending process (`labels.py`).
 - `ApiSecurityConfig`: `aud` must be `http://localhost:8080`. Scopes: `petstore.read` for `GET`, `petstore.buy`
   for the three calls `buyPet` makes (place order, form update of a pet, delete order), `petstore.admin` (offered
   to no client) for everything else. `GET /v2/openapi.json` is public.
+- **Orders belong to a user:** `OrderRepository` keeps each order with its owner, the token's `sub` (never a body
+  field; `Order` has no owner). `StoreService` answers someone else's order with the same `404 ORDER_NOT_FOUND` as a
+  missing one; don't turn that into a `403`. `GET /v2/store/orders` (not in the original Petstore) lists the
+  caller's orders. Sample orders 1–2 belong to user1, 3–4 to user2, 5 to user3. `OrderOwnershipTests` covers it.
 - Controller tests `@Import(SignedInAsGateway.class)`, which gives every MockMvc request a token with all scopes.
-  `ApiSecurityTests` sends real signed tokens from its own stand-in issuer.
+  Its subject is user1; to act as another user, add
+  `.with(jwt().jwt(t -> t.subject("user2")).authorities(SignedInAsGateway.allScopes()))`. `ApiSecurityTests` sends
+  real signed tokens from its own stand-in issuer.
 
 ## Working agreements
 
