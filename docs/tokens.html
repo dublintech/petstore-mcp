@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Petstore Tokens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* One colour per token, used for its card, its arrows, its bars and its payload. Same fonts and neutrals as
+   oauth-flow.html. */
+:root {
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --ink: #18202e;
+  --muted: #586276;
+  --line: #c3cbd8;
+  --subj: #2160c4;    /* subject token */
+  --refr: #b06700;    /* refresh token */
+  --actr: #6d3fc2;    /* actor token */
+  --issd: #127a55;    /* issued token */
+  --auth: #687384;    /* petstore-auth, neutral */
+  --warn: #d02a2a;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f131a; --panel: #161b24; --ink: #e4e9f1; --muted: #98a2b4; --line: #333b49;
+    --subj: #72a3ff; --refr: #f0a838; --actr: #b596ff; --issd: #45cf97; --auth: #9aa3b2; --warn: #ff6a60;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f131a; --panel: #161b24; --ink: #e4e9f1; --muted: #98a2b4; --line: #333b49;
+  --subj: #72a3ff; --refr: #f0a838; --actr: #b596ff; --issd: #45cf97; --auth: #9aa3b2; --warn: #ff6a60;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 36px 64px; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(30px, 4.4vw, 46px); font-weight: 700; letter-spacing: -.01em; }
+h2 { font-size: 24px; font-weight: 600; }
+h3 { font-size: 18px; font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+code, .mono { font-family: var(--f-mono); font-size: .9em; }
+a { color: var(--subj); }
+header { display: grid; gap: 12px; }
+.eyebrow { font: 600 12px/1 var(--f-display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--muted); font-size: 16px; }
+section { display: grid; gap: 16px; }
+/* Grid items default to min-width: auto, which lets a wide diagram stretch the page instead of scrolling. */
+.wrap > *, section > * { min-width: 0; }
+.note { color: var(--muted); font-size: 13.5px; }
+
+.t-subj { --c: var(--subj); } .t-refr { --c: var(--refr); } .t-actr { --c: var(--actr); } .t-issd { --c: var(--issd); }
+.tok {
+  display: inline-block; font: 600 12.5px/1.3 var(--f-mono); padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+  background: color-mix(in srgb, var(--c) 13%, var(--panel)); color: color-mix(in srgb, var(--c) 80%, var(--ink));
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+}
+
+/* token cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 8px;
+  padding: 16px 18px; display: grid; gap: 10px; align-content: start;
+}
+.card h3 { color: color-mix(in srgb, var(--c) 85%, var(--ink)); }
+.card .plain { font-size: 14px; }
+.card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13.5px; }
+.card dt { color: var(--muted); }
+.card dd { margin: 0; }
+
+/* diagrams */
+.figure { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+.scroll { overflow-x: auto; }
+svg text { font-family: var(--f-body); fill: var(--ink); }
+svg .mono { font-family: var(--f-mono); }
+svg .muted { fill: var(--muted); }
+svg .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+svg .box.authbox { fill: color-mix(in srgb, var(--auth) 10%, var(--panel)); }
+svg .lane { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 3 4; }
+svg .phase { fill: color-mix(in srgb, var(--muted) 7%, transparent); }
+svg .phase-label { font: 600 11.5px var(--f-display); letter-spacing: .1em; text-transform: uppercase; fill: var(--muted); }
+svg .grid { stroke: var(--line); stroke-width: 1; }
+
+/* tables */
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font: 600 13px var(--f-display); letter-spacing: .04em; color: var(--muted); background: color-mix(in srgb, var(--muted) 6%, var(--panel)); }
+tr:last-child td { border-bottom: 0; }
+td.changed { background: color-mix(in srgb, var(--c) 12%, transparent); font-weight: 600; }
+
+/* payloads */
+.payloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.payload { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
+.payload h3 { font-size: 16px; color: color-mix(in srgb, var(--c) 85%, var(--ink)); }
+pre { margin: 0; font: 13px/1.55 var(--f-mono); white-space: pre; overflow-x: auto; }
+pre .hl { background: color-mix(in srgb, var(--c) 16%, transparent); border-radius: 3px; padding: 0 2px; font-weight: 500; }
+pre .dim { color: var(--muted); }
+
+/* JWT anatomy */
+.jwt { font: 12.5px/1.6 var(--f-mono); word-break: break-all; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.jwt .h { color: var(--refr); } .jwt .p { color: var(--subj); } .jwt .s { color: var(--actr); } .jwt .d { color: var(--muted); font-weight: 600; }
+.jwt-key { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; }
+.jwt-key span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; background: var(--c); vertical-align: -1px; }
+
+/* why / rules */
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.rule { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.rule p { font-size: 14px; color: var(--muted); }
+ol.steps { margin: 0; padding-left: 22px; display: grid; gap: 4px; max-width: 80ch; }
+ul.points { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 84ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Petstore · MCP · OAuth 2.1 · RFC 8693 token exchange</div>
+    <h1>The tokens, one by one</h1>
+    <p class="lede">Four tokens get a request from Claude Desktop to the Petstore API. What each one is, what it contains, when it's made, who holds it and why it's needed. Every payload here is real, captured on 2026-10-29 from a running petstore-auth; the tokens have expired and the key that signed them is gone. The login itself, request by request, is in <a href="oauth-flow.html">oauth-flow.html</a>.</p>
+  </header>
+
+  <section aria-label="The four tokens">
+    <h2>The four tokens</h2>
+    <div class="cards">
+      <div class="card t-subj">
+        <h3>Subject token</h3>
+        <p class="plain">The user's token for the gateway.</p>
+        <dl>
+          <dt>About</dt><dd>user1</dd>
+          <dt>Made by</dt><dd>login (<code>authorization_code</code>), then <code>refresh_token</code></dd>
+          <dt>Sent</dt><dd>mcp-remote → gateway, every <code>/mcp</code> request</dd>
+          <dt><code>aud</code></dt><dd><code>http://localhost:8081/mcp</code></dd>
+          <dt>Lives</dt><dd>5 minutes</dd>
+          <dt>Format</dt><dd>signed JWT</dd>
+        </dl>
+      </div>
+      <div class="card t-refr">
+        <h3>Refresh token</h3>
+        <p class="plain">Gets a new subject token without logging in again.</p>
+        <dl>
+          <dt>About</dt><dd>user1's login</dd>
+          <dt>Made by</dt><dd>issued with the subject token</dd>
+          <dt>Sent</dt><dd>mcp-remote → petstore-auth only</dd>
+          <dt><code>aud</code></dt><dd>none: not a JWT</dd>
+          <dt>Lives</dt><dd>8 hours, replaced on every use</dd>
+          <dt>Format</dt><dd>random 128-character string</dd>
+        </dl>
+      </div>
+      <div class="card t-actr">
+        <h3>Actor token</h3>
+        <p class="plain">The gateway's own token, about itself.</p>
+        <dl>
+          <dt>About</dt><dd>petstore-gateway</dd>
+          <dt>Made by</dt><dd><code>client_credentials</code></dd>
+          <dt>Sent</dt><dd>gateway → petstore-auth, inside the exchange</dd>
+          <dt><code>aud</code></dt><dd><code>petstore-gateway</code></dd>
+          <dt>Lives</dt><dd>5 minutes</dd>
+          <dt>Format</dt><dd>signed JWT</dd>
+        </dl>
+      </div>
+      <div class="card t-issd">
+        <h3>Issued token</h3>
+        <p class="plain">The user's token for the API.</p>
+        <dl>
+          <dt>About</dt><dd>user1, through the gateway</dd>
+          <dt>Made by</dt><dd>token exchange (RFC 8693)</dd>
+          <dt>Sent</dt><dd>gateway → API, every API call</dd>
+          <dt><code>aud</code></dt><dd><code>http://localhost:8080</code></dd>
+          <dt>Lives</dt><dd>5 minutes, cached per subject token</dd>
+          <dt>Format</dt><dd>signed JWT</dd>
+        </dl>
+      </div>
+    </div>
+    <p class="note">"Subject", "actor" and "issued" are the RFC 8693 names for the roles in a token exchange. All three are ordinary access tokens.</p>
+  </section>
+
+  <section aria-label="Who sends which token where">
+    <h2>Who sends which token where</h2>
+    <div class="figure scroll">
+      <svg viewBox="0 0 800 330" width="100%" style="min-width:640px" role="img" aria-label="mcp-remote sends the subject token to the gateway; the gateway sends the issued token to the API; both get their tokens from petstore-auth">
+        <defs>
+          <marker id="a-subj" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--subj)"/></marker>
+          <marker id="a-refr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--refr)"/></marker>
+          <marker id="a-actr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--actr)"/></marker>
+          <marker id="a-issd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--issd)"/></marker>
+        </defs>
+
+        <rect class="box authbox" x="290" y="16" width="220" height="62" rx="8"/>
+        <text x="400" y="42" text-anchor="middle" font-weight="600">petstore-auth</text>
+        <text x="400" y="62" text-anchor="middle" class="mono muted" font-size="12">POST :9000/oauth2/token</text>
+
+        <rect class="box" x="16" y="232" width="190" height="62" rx="8"/>
+        <text x="111" y="258" text-anchor="middle" font-weight="600">mcp-remote</text>
+        <text x="111" y="278" text-anchor="middle" class="muted" font-size="12">for Claude Desktop</text>
+
+        <rect class="box" x="305" y="232" width="190" height="62" rx="8"/>
+        <text x="400" y="258" text-anchor="middle" font-weight="600">Gateway</text>
+        <text x="400" y="278" text-anchor="middle" class="mono muted" font-size="12">localhost:8081/mcp</text>
+
+        <rect class="box" x="594" y="232" width="190" height="62" rx="8"/>
+        <text x="689" y="258" text-anchor="middle" font-weight="600">petstore-api</text>
+        <text x="689" y="278" text-anchor="middle" class="mono muted" font-size="12">localhost:8080</text>
+
+        <!-- solid: tokens used at a resource server -->
+        <line x1="206" y1="263" x2="301" y2="263" style="stroke:var(--subj)" stroke-width="3" marker-end="url(#a-subj)"/>
+        <text x="253" y="252" text-anchor="middle" font-size="12.5" font-weight="600" style="fill:var(--subj)">subject</text>
+        <text x="253" y="312" text-anchor="middle" font-size="12" class="muted">every /mcp request</text>
+        <line x1="495" y1="263" x2="590" y2="263" style="stroke:var(--issd)" stroke-width="3" marker-end="url(#a-issd)"/>
+        <text x="542" y="252" text-anchor="middle" font-size="12.5" font-weight="600" style="fill:var(--issd)">issued</text>
+        <text x="542" y="312" text-anchor="middle" font-size="12" class="muted">every API call</text>
+
+        <!-- dashed: requests to the token endpoint -->
+        <path d="M120,232 C130,150 220,70 290,52" fill="none" style="stroke:var(--refr)" stroke-width="2" stroke-dasharray="6 5" marker-start="url(#a-subj)" marker-end="url(#a-refr)"/>
+        <text x="142" y="194" font-size="12.5" font-weight="600" style="fill:var(--refr)">login, then refresh token</text>
+        <text x="142" y="211" font-size="12" class="muted">→ subject + refresh token</text>
+
+        <line x1="372" y1="230" x2="372" y2="82" style="stroke:var(--actr)" stroke-width="2" stroke-dasharray="6 5" marker-start="url(#a-actr)" marker-end="url(#a-actr)"/>
+        <text x="364" y="150" text-anchor="end" font-size="12.5" font-weight="600" style="fill:var(--actr)">client secret</text>
+        <text x="364" y="167" text-anchor="end" font-size="12" class="muted">→ actor token</text>
+
+        <line x1="428" y1="230" x2="428" y2="82" style="stroke:var(--issd)" stroke-width="2" stroke-dasharray="6 5" marker-start="url(#a-issd)" marker-end="url(#a-issd)"/>
+        <text x="436" y="150" font-size="12.5" font-weight="600" style="fill:var(--issd)">subject + actor token</text>
+        <text x="436" y="167" font-size="12" class="muted">→ issued token (exchange)</text>
+      </svg>
+    </div>
+    <p class="note">Solid arrows carry a token to the server that uses it. Dashed arrows are requests to petstore-auth's token endpoint, the only place tokens are made. The actor token and the refresh token never reach a resource server.</p>
+  </section>
+
+  <section aria-label="When each token is created">
+    <h2>When each token is created</h2>
+    <div class="figure scroll"><svg id="seq" width="100%" role="img" aria-label="Sequence of token requests: login, first tool call with exchange, later calls from the cache, and a refresh after five minutes"></svg></div>
+    <p class="note">The gateway exchanges as the request arrives, before the MCP response starts (<code>ApiTokenExchangeFilter</code>), so a refused exchange is a plain 401. Cached tokens are renewed 30 seconds before they expire.</p>
+  </section>
+
+  <section aria-label="How long each token lives">
+    <h2>How long each token lives</h2>
+    <div class="figure scroll"><svg id="life" width="100%" role="img" aria-label="Timeline: subject, actor and issued tokens last five minutes; the refresh token lasts eight hours and is replaced each time it is used"></svg></div>
+    <p class="note">At 5:00 mcp-remote trades the refresh token for a new pair; the old refresh token stops working. The new subject token isn't in the gateway's cache, so the gateway exchanges again and gets a new issued token.</p>
+  </section>
+
+  <section aria-label="Anatomy of a JWT">
+    <h2>What a JWT looks like</h2>
+    <p>Three base64url parts joined by dots. This is the real subject token:</p>
+    <div class="jwt"><span class="h">eyJraWQiOiJlM2I4ZTc3Yi0zMjgzLTRiNDItOGNkOS0zMTEzYTUzYmNlNmEiLCJhbGciOiJSUzI1NiJ9</span><span class="d">.</span><span class="p">eyJzdWIiOiJ1c2VyMSIsImF1ZCI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODA4MS9tY3AiLCJuYmYiOjE3OTMzMDk2NzYsInNjb3BlIjpbInBldHN0b3JlLnJlYWQiXSwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo5MDAwIiwiZXhwIjoxNzkzMzA5OTc2LCJpYXQiOjE3OTMzMDk2NzYsImp0aSI6ImIzY2Y0ZjdiLTViM2YtNGU5Mi1iMWY4LTBlNTdlZjM3Y2QxZiJ9</span><span class="d">.</span><span class="s">zhA6sYj7Z4D8dVt1Abj4A6JFo0i4EacFQdeZT_UNK6gNQ0mDEqmbzCs1JtnVpX-t5hwx1AtRvdWB37HA_OAb-9TKsPlpG38erTvZwh-Kdhk2iLPN_OMup2SQs9KG2bNE-GVHY8mbVC2UBUavKEZ6-SELPrTU0bVOIN_S8xxzs3eCSXFVWA7XFIHWxOE3T1SvtHVtlDdItcjEfNexwrXpAOk2HmcfUYgSJgv2hlmL0scWQ7lRHTW4BmNb1NN67JvOmibZAS3rQOGLyOqhhhvkSbuBLRwooThYus6vf9qdhWga0yaQcwrMIB_ZuX3osBdU4bcNPX4KXsFjPCdQBP7a9A</span></div>
+    <div class="jwt-key">
+      <span style="--c:var(--refr)">header: key ID and algorithm</span>
+      <span style="--c:var(--subj)">payload: the claims</span>
+      <span style="--c:var(--actr)">signature: RS256 over header + payload</span>
+    </div>
+    <p>Header and payload are only encoded, not encrypted: anyone holding the token can read them. The signature is what can't be forged without petstore-auth's private key.</p>
+  </section>
+
+  <section aria-label="Payloads">
+    <h2>The payloads</h2>
+    <p>The three JWTs from one run, decoded. Highlighted claims are the ones that differ between the subject token and the issued token.</p>
+    <div class="payloads">
+      <div class="payload t-subj">
+        <h3>Subject token</h3>
+<pre><span class="dim">{ "kid": "e3b8e77b-…", "alg": "RS256" }</span>
+{
+  "sub":   "user1",
+  <span class="hl">"aud":   "http://localhost:8081/mcp"</span>,
+  "nbf":   1793309676,
+  "scope": ["petstore.read"],
+  "iss":   "http://localhost:9000",
+  "exp":   1793309976,
+  "iat":   1793309676,
+  "jti":   "b3cf4f7b-5b3f-…"
+}</pre>
+        <p class="note">Issued 21:34:36 UTC, expires 21:39:36. Checked by the gateway (<code>McpSecurityConfig</code>).</p>
+      </div>
+      <div class="payload t-actr">
+        <h3>Actor token</h3>
+<pre><span class="dim">{ "kid": "e3b8e77b-…", "alg": "RS256" }</span>
+{
+  "sub": "petstore-gateway",
+  "aud": "petstore-gateway",
+  "nbf": 1793309678,
+  "iss": "http://localhost:9000",
+  "exp": 1793309978,
+  "iat": 1793309678,
+  "jti": "147e2592-daac-…"
+}</pre>
+        <p class="note">No <code>scope</code>: the gateway asks for none. <code>aud</code> is Spring's default, the client ID. Checked only by petstore-auth (<code>TokenExchangeRules</code>).</p>
+      </div>
+      <div class="payload t-issd">
+        <h3>Issued token</h3>
+<pre><span class="dim">{ "kid": "e3b8e77b-…", "alg": "RS256" }</span>
+{
+  "sub":   "user1",
+  <span class="hl">"aud":   "http://localhost:8080"</span>,
+  "nbf":   1793309680,
+  <span class="hl">"act":   { "sub": "petstore-gateway" }</span>,
+  "scope": ["petstore.read"],
+  "iss":   "http://localhost:9000",
+  "exp":   1793309980,
+  "iat":   1793309680,
+  "jti":   "f4650cab-3c53-…"
+}</pre>
+        <p class="note">Checked by the API (<code>ApiSecurityConfig</code>). Its <code>sub</code> is how the API tells whose orders are whose.</p>
+      </div>
+    </div>
+    <div class="payloads">
+      <div class="payload t-subj">
+        <h3>Login response (to mcp-remote)</h3>
+<pre>{
+  "access_token":  "eyJraWQiOi…",
+  "refresh_token": "34Ush9WIjsND4ek6…",
+  "scope":         "petstore.read",
+  "token_type":    "Bearer",
+  "expires_in":    299
+}</pre>
+      </div>
+      <div class="payload t-issd">
+        <h3>Exchange response (to the gateway)</h3>
+<pre>{
+  "access_token":      "eyJraWQiOi…",
+  "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+  "scope":             "petstore.read",
+  "token_type":        "Bearer",
+  "expires_in":        299
+}</pre>
+        <p class="note">No refresh token: when it runs out, the gateway exchanges again.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Side by side">
+    <h2>Side by side</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Claim</th><th>Subject token</th><th>Actor token</th><th>Issued token</th><th>What it means</th></tr></thead>
+      <tbody>
+        <tr><td><code>iss</code></td><td><code>http://localhost:9000</code></td><td>same</td><td>same</td><td>Who signed it. One authorization server for everything.</td></tr>
+        <tr><td><code>sub</code></td><td><code>user1</code></td><td><code>petstore-gateway</code></td><td><code>user1</code></td><td>Who it's about. The exchange keeps the user.</td></tr>
+        <tr><td><code>aud</code></td><td><code>http://localhost:8081/mcp</code></td><td><code>petstore-gateway</code></td><td class="t-issd changed"><code>http://localhost:8080</code></td><td>Where it may be used. The one claim that must change.</td></tr>
+        <tr><td><code>scope</code></td><td><code>petstore.read</code></td><td>none</td><td><code>petstore.read</code></td><td>What the user approved. Carried over, never widened.</td></tr>
+        <tr><td><code>act</code></td><td>none</td><td>none</td><td class="t-issd changed"><code>{"sub":"petstore-gateway"}</code></td><td>Who acts for the user: delegation, not impersonation.</td></tr>
+        <tr><td><code>iat</code> / <code>nbf</code></td><td>21:34:36</td><td>21:34:38</td><td>21:34:40</td><td>Issued at; not valid before.</td></tr>
+        <tr><td><code>exp</code></td><td>+5 min</td><td>+5 min</td><td>+5 min</td><td>Each token has its own clock.</td></tr>
+        <tr><td><code>jti</code></td><td><code>b3cf4f7b-…</code></td><td><code>147e2592-…</code></td><td><code>f4650cab-…</code></td><td>A unique ID: three separate tokens, none edited from another.</td></tr>
+        <tr><td><code>kid</code> (header)</td><td><code>e3b8e77b-…</code></td><td>same</td><td>same</td><td>Which public key checks the signature.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note"><code>aud</code> is a single string here. A JWT may also carry a list; Spring writes one audience as a string, and the validators accept either.</p>
+  </section>
+
+  <section aria-label="Why each token is needed">
+    <h2>Why each one is needed</h2>
+    <div class="rules">
+      <div class="rule"><h3><span class="tok t-subj">subject</span></h3><p>The gateway must know who is calling and what they approved, without ever seeing the password. Its <code>aud</code> makes it useless anywhere but the gateway.</p></div>
+      <div class="rule"><h3><span class="tok t-refr">refresh</span></h3><p>Access tokens last 5 minutes to limit the damage of a leak. Without a refresh token the user would log in every 5 minutes. It rotates: each use retires it, so a stolen copy can't be used quietly alongside the real one.</p></div>
+      <div class="rule"><h3><span class="tok t-actr">actor</span></h3><p>Says who is acting for the user; its <code>sub</code> becomes <code>act</code>. Without it the exchange would be impersonation: the new token would look like user1's own. <code>TokenExchangeRules</code> refuses that.</p></div>
+      <div class="rule"><h3><span class="tok t-issd">issued</span></h3><p>The API accepts only tokens meant for it. Forwarding the user's token (token passthrough) is forbidden by the MCP spec; the gateway's own token has no user in it.</p></div>
+    </div>
+  </section>
+
+  <section aria-label="How the issued token is built">
+    <h2>How the issued token is built</h2>
+<pre class="jwt" style="word-break:normal">POST http://localhost:9000/oauth2/token
+Authorization: Basic base64(petstore-gateway:gateway-dev-secret-not-for-production)
+
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+requested_token_type=urn:ietf:params:oauth:token-type:access_token
+subject_token=<span style="color:var(--subj)">&lt;subject token&gt;</span>   subject_token_type=urn:ietf:params:oauth:token-type:access_token
+actor_token=<span style="color:var(--actr)">&lt;actor token&gt;</span>       actor_token_type=urn:ietf:params:oauth:token-type:access_token
+resource=http://localhost:8080</pre>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Step</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td>Find user1's login record by the subject token; <code>invalid_grant</code> if there's none</td><td>Spring, <code>OAuth2TokenExchangeAuthenticationProvider</code></td></tr>
+        <tr><td>Copy the scopes user1 approved from that record (the request names none)</td><td>Spring, same class</td></tr>
+        <tr><td>Set <code>aud</code> from <code>resource</code></td><td><code>ResourceAudienceConfig</code></td></tr>
+        <tr><td>Require the actor token to be the gateway's own, the subject token to be meant for the gateway, and no more scope than user1 approved; add <code>act</code></td><td><code>TokenExchangeRules</code></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section aria-label="Scope">
+    <h2>Scope: what it means, and where</h2>
+    <p>A scope is a label. It means something only because a server compares it with a rule. Spring turns each one into an authority named <code>SCOPE_&lt;scope&gt;</code>, and the rules check those.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Server</th><th>Where</th><th><code>petstore.read</code></th><th><code>petstore.buy</code></th></tr></thead>
+      <tbody>
+        <tr><td>Gateway</td><td><code>McpSecurityConfig</code>, <code>BuyStepUpFilter</code></td><td>every <code>/mcp</code> request</td><td>a <code>tools/call</code> of <code>buyPet</code></td></tr>
+        <tr><td>API</td><td><code>ApiSecurityConfig</code></td><td>every <code>GET</code> under <code>/v2</code></td><td>place an order, form update of a pet, delete an order</td></tr>
+      </tbody>
+    </table></div>
+    <ul class="points">
+      <li><strong>Same scope in the subject and issued tokens</strong>, because it records what the user approved, and that doesn't change when the token moves to another server. RFC 8693 would allow fewer (down-scoping), never more.</li>
+      <li><strong>It comes from petstore-auth's record of the login</strong>, not from reading the subject token. When that record is gone (a restart, a revoked login) the exchange fails, even if the subject token still looks valid.</li>
+      <li><strong>The consent page shows the raw names</strong> as checkboxes, with no description, and names the app by its client ID, <code>petstore-mcp-client</code>.</li>
+      <li><strong>A label can promise less than the rule allows.</strong> <code>petstore.buy</code> sounds like "buy a pet", but at the API it also allows renaming any pet and changing its status, because <code>buyPet</code> is built from three general-purpose calls. (Cancelling is limited to the user's own orders, since step 7.)</li>
+    </ul>
+    <p><strong>Step-up</strong> changes only the scope: after user1 approves buying, the new subject token has <code>["petstore.read", "petstore.buy"]</code>. It isn't in the gateway's cache, so the gateway exchanges it, and the new issued token carries both scopes too.</p>
+  </section>
+
+  <section aria-label="How a JWT is checked">
+    <h2>How a JWT is checked</h2>
+    <p>The gateway and the API check tokens the same way, locally, without asking petstore-auth about each one:</p>
+    <ol class="steps">
+      <li>Read <code>kid</code> and find that key in <code>GET http://localhost:9000/oauth2/jwks</code> (the gateway fetches it on the first token and caches it for 5 minutes).</li>
+      <li>Check the signature. A changed claim, or a token signed by anyone else, fails here.</li>
+      <li><code>iss</code> must be <code>http://localhost:9000</code>.</li>
+      <li><code>exp</code> and <code>nbf</code> must allow now.</li>
+      <li><code>aud</code> must contain this server's own URL.</li>
+      <li>The request must be allowed by the token's scopes.</li>
+    </ol>
+<pre class="jwt" style="word-break:normal">{ "keys": [ { "kty": "RSA", "e": "AQAB", "kid": "e3b8e77b-3283-4b42-8cd9-3113a53bce6a", "n": "9NqCPC8c6UC6…" } ] }</pre>
+    <p class="note">Only the public half is published. The key pair is created at startup and kept in memory, so restarting petstore-auth makes every existing token fail step 1.</p>
+  </section>
+
+  <section aria-label="When a token is refused">
+    <h2>When a token is refused</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Situation</th><th>Where</th><th>Answer</th></tr></thead>
+      <tbody>
+        <tr><td>The subject token is sent to the API</td><td>API</td><td><code>401</code>: its <code>aud</code> is the gateway</td></tr>
+        <tr><td>The issued token is sent to the gateway</td><td>Gateway</td><td><code>401</code>: its <code>aud</code> is the API</td></tr>
+        <tr><td>The subject token has expired</td><td>Gateway</td><td><code>401</code>; mcp-remote gets a new one with the refresh token</td></tr>
+        <tr><td>A refresh token is used a second time</td><td>petstore-auth</td><td><code>invalid_grant</code>: the first use retired it</td></tr>
+        <tr><td><code>buyPet</code> without <code>petstore.buy</code></td><td>Gateway</td><td><code>403 insufficient_scope, scope="petstore.read petstore.buy"</code> (step-up)</td></tr>
+        <tr><td>petstore-auth was restarted</td><td>Gateway</td><td><code>401</code>: the signing key is new, and the login record the exchange needs is gone</td></tr>
+        <tr><td>A token meant for another server is exchanged</td><td>petstore-auth</td><td><code>invalid_grant</code>: the gateway may exchange only tokens meant for itself</td></tr>
+        <tr><td>The exchange asks for more scope than the user approved</td><td>petstore-auth</td><td><code>invalid_scope</code></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section aria-label="Rules of thumb">
+    <h2>Rules of thumb</h2>
+    <div class="rules">
+      <div class="rule"><h3>One token, one server</h3><p><code>aud</code> decides where a token works. Every hop to a new server gets a new token.</p></div>
+      <div class="rule"><h3>Never forward the user's token</h3><p>The gateway exchanges it; it doesn't pass it through.</p></div>
+      <div class="rule"><h3>User in <code>sub</code>, program in <code>act</code></h3><p>The API knows both who is asking and what is asking for them.</p></div>
+      <div class="rule"><h3>Scope never grows on the way</h3><p>More permission means asking the user again (step-up).</p></div>
+      <div class="rule"><h3>Short-lived, rotating</h3><p>A leaked access token expires in minutes. A leaked refresh token can't be shared quietly, because each use retires it.</p></div>
+    </div>
+  </section>
+
+</div>
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+function svgEl(name, attrs, text) {
+  const e = document.createElementNS(NS, name);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+}
+function markers(svg, id) {
+  const defs = svgEl('defs');
+  for (const c of ['subj', 'refr', 'actr', 'issd', 'auth']) {
+    const m = svgEl('marker', { id: id + c, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+    m.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', style: `fill:var(--${c})` }));
+    defs.appendChild(m);
+  }
+  svg.appendChild(defs);
+}
+
+/* Sequence diagram: lanes, phases and messages. Colour = the token the message carries. */
+(function sequence() {
+  const svg = document.getElementById('seq');
+  const lanes = [['mcp-remote', ''], ['petstore-auth', 'localhost:9000'], ['Gateway', 'localhost:8081'], ['petstore-api', 'localhost:8080']];
+  const X = [100, 330, 570, 800], W = 900, ROW = 34, TOP = 76;
+  const R = 0, A = 1, G = 2, P = 3;
+  const phases = [
+    ['Login, once', [
+      [R, A, 'POST /oauth2/token  authorization_code + code_verifier', 'auth'],
+      [A, R, 'subject token (5 min) + refresh token (8 h)', 'subj']]],
+    ['First tool call', [
+      [R, G, 'POST /mcp  Bearer subject token', 'subj'],
+      [G, A, 'grant_type=client_credentials  (Basic: gateway secret)', 'auth'],
+      [A, G, 'actor token (5 min), cached', 'actr'],
+      [G, A, 'grant_type=token-exchange  subject + actor token, resource=:8080', 'auth'],
+      [A, G, 'issued token (5 min), cached under the subject token', 'issd'],
+      [G, P, 'GET /v2/…  Bearer issued token', 'issd'],
+      [P, G, '200', 'auth'],
+      [G, R, 'tool result', 'auth']]],
+    ['Later calls, same subject token', [
+      [R, G, 'POST /mcp  Bearer subject token', 'subj'],
+      [G, P, 'Bearer issued token, from the cache: no exchange', 'issd']]],
+    ['After 5 minutes', [
+      [R, G, 'POST /mcp  Bearer expired subject token', 'subj'],
+      [G, R, '401', 'auth'],
+      [R, A, 'grant_type=refresh_token', 'refr'],
+      [A, R, 'new subject token + new refresh token; the old one is retired', 'subj'],
+      [R, G, 'POST /mcp  Bearer new subject token → not cached: new exchange', 'subj']]]
+  ];
+  const rows = phases.reduce((n, p) => n + p[1].length + 1, 0);
+  const H = TOP + rows * ROW + 20;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.minWidth = '760px';
+  markers(svg, 's-');
+  lanes.forEach(([name, sub], i) => {
+    svg.appendChild(svgEl('line', { class: 'lane', x1: X[i], y1: 58, x2: X[i], y2: H - 8 }));
+    svg.appendChild(svgEl('rect', { class: 'box' + (i === A ? ' authbox' : ''), x: X[i] - 80, y: 8, width: 160, height: 50, rx: 7 }));
+    svg.appendChild(svgEl('text', { x: X[i], y: sub ? 30 : 38, 'text-anchor': 'middle', 'font-weight': 600, 'font-size': 14 }, name));
+    if (sub) svg.appendChild(svgEl('text', { x: X[i], y: 48, 'text-anchor': 'middle', class: 'mono muted', 'font-size': 11.5 }, sub));
+  });
+  let y = TOP;
+  for (const [title, msgs] of phases) {
+    svg.appendChild(svgEl('rect', { class: 'phase', x: 6, y: y - 4, width: W - 12, height: (msgs.length + 1) * ROW - 6, rx: 6 }));
+    svg.appendChild(svgEl('text', { class: 'phase-label', x: 16, y: y + 14 }, title));
+    y += ROW;
+    for (const [from, to, label, c] of msgs) {
+      const x1 = X[from], x2 = X[to], dir = Math.sign(x2 - x1);
+      const back = c === 'auth' && (from === A || from === P || to === R);
+      svg.appendChild(svgEl('line', { x1: x1 + dir * 4, y1: y + 12, x2: x2 - dir * 4, y2: y + 12,
+        style: `stroke:var(--${c})`, 'stroke-width': c === 'auth' ? 1.5 : 2.5,
+        'stroke-dasharray': back ? '5 4' : 'none', 'marker-end': `url(#s-${c})` }));
+      const mid = (x1 + x2) / 2;
+      svg.appendChild(svgEl('text', { x: mid, y: y + 6, 'text-anchor': 'middle', 'font-size': 12,
+        style: c === 'auth' ? '' : `fill:color-mix(in srgb, var(--${c}) 85%, var(--ink))`,
+        'font-weight': c === 'auth' ? 400 : 600 }, label));
+      y += ROW;
+    }
+  }
+})();
+
+/* Lifetime chart: minutes 0 to 10, one row per token generation. */
+(function lifetimes() {
+  const svg = document.getElementById('life');
+  const L = 190, PX = 64, W = L + 10.5 * PX + 20, ROW = 36, TOP = 30;
+  const x = m => L + m * PX;
+  const rows = [
+    ['Subject token', 'subj', [[0, 5, '#1'], [5, 10, '#2']]],
+    ['Refresh token', 'refr', [[0, 5, '#1 retired when used'], [5, 10.5, '#2 · valid 8 h', true]]],
+    ['Actor token', 'actr', [[0.03, 5.03, 'renewed when needed']]],
+    ['Issued token', 'issd', [[0.07, 5, 'for subject #1'], [5, 10, 'for subject #2']]]
+  ];
+  const H = TOP + rows.length * ROW + 34;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.minWidth = '700px';
+  for (let m = 0; m <= 10; m++) {
+    svg.appendChild(svgEl('line', { class: 'grid', x1: x(m), y1: TOP - 8, x2: x(m), y2: TOP + rows.length * ROW, 'stroke-dasharray': m % 5 ? '2 4' : 'none' }));
+    svg.appendChild(svgEl('text', { x: x(m), y: TOP + rows.length * ROW + 18, 'text-anchor': 'middle', class: 'muted mono', 'font-size': 11.5 }, m + ':00'));
+  }
+  rows.forEach(([name, c, bars], i) => {
+    const y = TOP + i * ROW;
+    svg.appendChild(svgEl('text', { x: 12, y: y + 18, 'font-size': 13.5, 'font-weight': 600, style: `fill:color-mix(in srgb, var(--${c}) 85%, var(--ink))` }, name));
+    for (const [a, b, label, open] of bars) {
+      svg.appendChild(svgEl('rect', { x: x(a) + 1, y: y + 4, width: x(b) - x(a) - 2, height: ROW - 12, rx: 4,
+        style: `fill:color-mix(in srgb, var(--${c}) ${open ? 10 : 20}%, var(--panel)); stroke:var(--${c})`,
+        'stroke-dasharray': open ? '5 4' : 'none' }));
+      svg.appendChild(svgEl('text', { x: x(a) + 10, y: y + 22, 'font-size': 12 }, label));
+    }
+  });
+  // 30-second early renewal marker on the gateway's cached tokens
+  for (const i of [2, 3]) {
+    const y = TOP + i * ROW;
+    svg.appendChild(svgEl('line', { x1: x(4.5), y1: y + 2, x2: x(4.5), y2: y + ROW - 6, style: 'stroke:var(--warn)', 'stroke-width': 2 }));
+  }
+  svg.appendChild(svgEl('text', { x: x(4.5), y: TOP - 12, 'text-anchor': 'middle', 'font-size': 11.5, style: 'fill:var(--warn)' }, 'gateway renews 30 s early'));
+})();
+</script>
+</body>
+</html>

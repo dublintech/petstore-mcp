@@ -209,7 +209,8 @@ approving something they shouldn't; the safe error handling, confirmation before
 tools above cover those.
 
 [`docs/oauth-flow.md`](docs/oauth-flow.md) walks through the login request by request: where each value is defined,
-and which values are secret.
+and which values are secret. [`docs/tokens.md`](docs/tokens.md) explains the four tokens (subject, refresh, actor and
+issued): real payloads, when each is created, who holds it and why it's needed.
 
 ### Roadmap
 
