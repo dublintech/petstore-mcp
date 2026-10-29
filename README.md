@@ -223,8 +223,7 @@ and which values are secret.
 | 5 | Gateway gets its own token for the API (no token passthrough) | Done |
 | 6 | Token exchange so the API knows which user is behind a gateway call | Done |
 | 7 | Per-user data: users see only their own orders | Planned |
-| 8a | Step-up: logins ask for `petstore.read` only; the first `buyPet` triggers a `petstore.buy` consent | Done |
-| 8b | Per-purchase approval: each order is confirmed, with its details, on a `petstore-auth` page | Planned |
+| 8 | Step-up: logins ask for `petstore.read` only; the first `buyPet` triggers a `petstore.buy` consent | Done |
 
 The gateway accepts a token only if it is signed by `petstore-auth`, unexpired, issued by `http://localhost:9000`
 and meant for it (`aud` = `http://localhost:8081/mcp`, from the `resource` parameter), and every request needs
@@ -253,7 +252,7 @@ cover it.
 - The authorization server's signing key, sessions and refresh tokens are in memory, so a restart means logging in
   again.
 - Step-up approves *buying*, not a particular purchase: once approved, `petstore.buy` stays in the token chain
-  until the login ends, so later purchases in that session need no further approval. Step 8b adds that.
+  until the login ends, so later purchases in that session need no further approval.
 - `buyPet` checks availability and then orders as separate calls, so two concurrent buyers could both pass the
   check. A real fix needs a conditional update in the API.
 - Free text in successful results (such as pet names) still reaches the model, as structured data.
